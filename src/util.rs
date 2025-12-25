@@ -409,6 +409,36 @@ fn build_carve_registry(cfg: &Config) -> CarveRegistry {
                     )),
                 );
             }
+            "pdf" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::pdf::PdfCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "zip" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::zip::ZipCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "webp" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::webp::WebpCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
             _ => {
                 debug!("no carve handler for file_type={}", file_type.id);
             }

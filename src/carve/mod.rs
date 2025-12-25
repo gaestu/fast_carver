@@ -2,6 +2,9 @@ pub mod gif;
 pub mod jpeg;
 pub mod png;
 pub mod sqlite;
+pub mod pdf;
+pub mod webp;
+pub mod zip;
 
 use std::collections::HashMap;
 use std::fs::File;

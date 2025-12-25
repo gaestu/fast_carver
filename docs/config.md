@@ -11,6 +11,8 @@ The default config is `config/default.yml`.
 - `string_max_len` (usize): maximum string length per span.
 - `file_types` (list): enabled file types and patterns.
 
+Note: ZIP carving will classify docx/xlsx/pptx based on central directory entries when present.
+
 ## File type configuration
 
 Each entry in `file_types` contains:
@@ -48,4 +50,31 @@ file_types:
     max_size: 536870912
     min_size: 100
     validator: "sqlite"
+  - id: "pdf"
+    extensions: ["pdf"]
+    header_patterns:
+      - id: "pdf_header"
+        hex: "255044462D"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 64
+    validator: "pdf"
+  - id: "zip"
+    extensions: ["zip"]
+    header_patterns:
+      - id: "zip_header"
+        hex: "504B0304"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 32
+    validator: "zip"
+  - id: "webp"
+    extensions: ["webp"]
+    header_patterns:
+      - id: "webp_header"
+        hex: "52494646"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 20
+    validator: "webp"
 ```

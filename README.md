@@ -1,6 +1,6 @@
 # fastcarve
 
-High-speed, forensic-grade file and artefact carver (Phase 2: CPU-only core with SQLite and strings).
+High-speed, forensic-grade file and artefact carver (Phase 2: CPU-only core with SQLite, strings, and expanded file types).
 
 ## Quick start
 
@@ -22,7 +22,7 @@ cargo run -- --input /path/to/image.dd --output ./output --scan-strings
 
 This creates a run directory under `./output/<run_id>/` with:
 
-- `carved/` - carved files per type
+- `carved/` - carved files per type (jpeg/png/gif/pdf/zip/webp/sqlite). ZIPs are classified into docx/xlsx/pptx when entries match.
 - `metadata/` - JSONL records for carved files, string artefacts, and browser history
 
 ## Configuration
@@ -67,8 +67,9 @@ The Phase 2 pipeline:
 2. Chunk scheduler + reader
 3. CPU signature scanner
 4. Optional CPU string scanner + artefact extraction
-5. Carve workers (JPEG/PNG/GIF/SQLite)
-6. JSONL/CSV metadata sink
+5. Carve workers (JPEG/PNG/GIF/PDF/ZIP/WEBP/SQLite)
+6. SQLite parser for browser history
+7. JSONL/CSV metadata sink
 
 See `docs/architecture.md` for details.
 

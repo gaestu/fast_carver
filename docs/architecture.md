@@ -1,6 +1,6 @@
 # Architecture (Phase 1)
 
-Phase 2 adds SQLite carving, string scanning, and browser history extraction.
+Phase 2 adds SQLite carving, string scanning, browser history extraction, and PDF/ZIP/WEBP carving.
 
 ## Pipeline
 

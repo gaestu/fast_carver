@@ -67,33 +67,56 @@ pub mod artifacts {
         let text = String::from_utf8_lossy(data);
 
         for mat in URL_RE.find_iter(&text) {
-            out.push(build_artefact(
-                run_id,
-                ArtefactKind::Url,
-                mat.as_str(),
-                chunk_start + local_start + mat.start() as u64,
-            ));
+            if let Some(value) = normalize_url(mat.as_str()) {
+                out.push(build_artefact(
+                    run_id,
+                    ArtefactKind::Url,
+                    &value,
+                    chunk_start + local_start + mat.start() as u64,
+                ));
+            }
         }
 
         for mat in EMAIL_RE.find_iter(&text) {
-            out.push(build_artefact(
-                run_id,
-                ArtefactKind::Email,
-                mat.as_str(),
-                chunk_start + local_start + mat.start() as u64,
-            ));
+            if let Some(value) = normalize_email(mat.as_str()) {
+                out.push(build_artefact(
+                    run_id,
+                    ArtefactKind::Email,
+                    &value,
+                    chunk_start + local_start + mat.start() as u64,
+                ));
+            }
         }
 
         for mat in PHONE_RE.find_iter(&text) {
-            out.push(build_artefact(
-                run_id,
-                ArtefactKind::Phone,
-                mat.as_str(),
-                chunk_start + local_start + mat.start() as u64,
-            ));
+            let value = mat.as_str();
+            if is_plausible_phone(value) {
+                out.push(build_artefact(
+                    run_id,
+                    ArtefactKind::Phone,
+                    value,
+                    chunk_start + local_start + mat.start() as u64,
+                ));
+            }
         }
 
         out
+    }
+
+    fn is_plausible_phone(value: &str) -> bool {
+        let digits: Vec<char> = value.chars().filter(|c| c.is_ascii_digit()).collect();
+        let len = digits.len();
+        if len < 10 || len > 15 {
+            return false;
+        }
+        if digits.is_empty() {
+            return false;
+        }
+        let first = digits[0];
+        if digits.iter().all(|d| *d == first) {
+            return false;
+        }
+        true
     }
 
     fn build_artefact(run_id: &str, kind: ArtefactKind, content: &str, global_start: u64) -> StringArtefact {
@@ -109,6 +132,69 @@ pub mod artifacts {
         }
     }
 
+    fn normalize_url(value: &str) -> Option<String> {
+        let trimmed = trim_trailing_punct(value);
+        if trimmed.len() < 8 || trimmed.len() > 2048 {
+            return None;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        let rest = if lower.starts_with("http://") {
+            &trimmed[7..]
+        } else if lower.starts_with("https://") {
+            &trimmed[8..]
+        } else if lower.starts_with("www.") {
+            &trimmed[4..]
+        } else {
+            return None;
+        };
+
+        let host_end = rest.find('/').unwrap_or(rest.len());
+        let host_port = &rest[..host_end];
+        let host = host_port.split(':').next().unwrap_or("");
+        if host.is_empty() || host.len() > 253 || !host.contains('.') {
+            return None;
+        }
+        for part in host.split('.') {
+            if part.is_empty() || part.len() > 63 {
+                return None;
+            }
+        }
+
+        Some(trimmed.to_string())
+    }
+
+    fn normalize_email(value: &str) -> Option<String> {
+        let trimmed = trim_trailing_punct(value);
+        if trimmed.len() < 6 || trimmed.len() > 254 {
+            return None;
+        }
+        let (local, domain) = trimmed.split_once('@')?;
+        if local.is_empty() || local.len() > 64 {
+            return None;
+        }
+        if domain.len() > 253 || !domain.contains('.') {
+            return None;
+        }
+        if !domain.chars().any(|c| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        for part in domain.split('.') {
+            if part.is_empty() || part.len() > 63 {
+                return None;
+            }
+        }
+        Some(trimmed.to_string())
+    }
+
+    fn trim_trailing_punct(value: &str) -> &str {
+        value.trim_end_matches(|c: char| {
+            matches!(
+                c,
+                '.' | ',' | ';' | ':' | ')' | ']' | '}' | '"' | '\'' | '>' | '<'
+            )
+        })
+    }
+
     #[cfg(test)]
     mod tests {
         use super::{extract_artefacts, ArtefactKind};
@@ -119,6 +205,43 @@ pub mod artifacts {
             let out = extract_artefacts("run1", 100, 0, data);
             assert!(out.iter().any(|a| matches!(a.artefact_kind, ArtefactKind::Url)));
             assert!(out.iter().any(|a| matches!(a.artefact_kind, ArtefactKind::Email)));
+        }
+
+        #[test]
+        fn filters_noisy_phone_matches() {
+            let data = b"0000000000 bad +1 (415) 555-1234 good";
+            let out = extract_artefacts("run1", 0, 0, data);
+            let phones: Vec<&str> = out
+                .iter()
+                .filter(|a| matches!(a.artefact_kind, ArtefactKind::Phone))
+                .map(|a| a.content.as_str())
+                .collect();
+            assert!(phones.iter().any(|v| v.contains("415")));
+            assert!(!phones.iter().any(|v| v.starts_with("0000")));
+        }
+
+        #[test]
+        fn trims_url_trailing_punct() {
+            let data = b"(https://example.com/login),";
+            let out = extract_artefacts("run1", 0, 0, data);
+            let urls: Vec<&str> = out
+                .iter()
+                .filter(|a| matches!(a.artefact_kind, ArtefactKind::Url))
+                .map(|a| a.content.as_str())
+                .collect();
+            assert!(urls.contains(&"https://example.com/login"));
+        }
+
+        #[test]
+        fn trims_email_trailing_punct() {
+            let data = b"user@example.com.";
+            let out = extract_artefacts("run1", 0, 0, data);
+            let emails: Vec<&str> = out
+                .iter()
+                .filter(|a| matches!(a.artefact_kind, ArtefactKind::Email))
+                .map(|a| a.content.as_str())
+                .collect();
+            assert!(emails.contains(&"user@example.com"));
         }
     }
 }
