@@ -1,0 +1,33 @@
+run_id: ""
+overlap_bytes: 65536
+enable_string_scan: false
+file_types:
+  - id: "jpeg"
+    extensions: ["jpg", "jpeg"]
+    header_patterns:
+      - id: "jpeg_soi"
+        hex: "FFD8FF"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 16
+    validator: "jpeg"
+  - id: "png"
+    extensions: ["png"]
+    header_patterns:
+      - id: "png_sig"
+        hex: "89504E470D0A1A0A"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 16
+    validator: "png"
+  - id: "gif"
+    extensions: ["gif"]
+    header_patterns:
+      - id: "gif87a"
+        hex: "474946383761"
+      - id: "gif89a"
+        hex: "474946383961"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 16
+    validator: "gif"

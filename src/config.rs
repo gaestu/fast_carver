@@ -1,0 +1,74 @@
+use std::path::Path;
+
+use anyhow::Result;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FileTypeConfig {
+    pub id: String,
+    pub extensions: Vec<String>,
+    pub header_patterns: Vec<PatternConfig>,
+    pub footer_patterns: Vec<PatternConfig>,
+    pub max_size: u64,
+    pub min_size: u64,
+    pub validator: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct PatternConfig {
+    pub id: String,
+    pub hex: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    pub run_id: String,
+    pub overlap_bytes: u64,
+    pub enable_string_scan: bool,
+    pub file_types: Vec<FileTypeConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedConfig {
+    pub config: Config,
+    pub config_hash: String,
+}
+
+pub fn load_config(path: Option<&Path>) -> Result<LoadedConfig> {
+    let bytes: Vec<u8> = if let Some(p) = path {
+        std::fs::read(p)?
+    } else {
+        include_bytes!("../config/default.yml").to_vec()
+    };
+
+    let mut config: Config = serde_yaml::from_slice(&bytes)?;
+    if config.run_id.trim().is_empty() {
+        config.run_id = generate_run_id();
+    }
+
+    let config_hash = hash_bytes(&bytes);
+
+    Ok(LoadedConfig { config, config_hash })
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    hex::encode(digest)
+}
+
+fn generate_run_id() -> String {
+    let now = chrono::Utc::now();
+    format!("{}_{}", now.format("%Y%m%dT%H%M%SZ"), rand_suffix())
+}
+
+fn rand_suffix() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    format!("{:08x}", nanos)
+}
