@@ -1,14 +1,16 @@
 # Architecture (Phase 1)
 
-Phase 1 focuses on CPU-only carving of JPEG/PNG/GIF from raw disk images.
+Phase 2 adds SQLite carving, string scanning, and browser history extraction.
 
 ## Pipeline
 
 1. **EvidenceSource** reads a raw file (or E01 when built with `--features ewf`) into a linear byte space.
 2. **Chunk scheduler** splits the image into overlapping chunks.
 3. **CPU signature scanner** searches for file headers within each chunk.
-4. **Carve workers** validate and extract files from the evidence source.
-5. **Metadata sink** writes JSONL records for each carved file.
+4. **CPU string scanner** (optional) extracts printable spans and artefacts.
+5. **Carve workers** validate and extract files from the evidence source.
+6. **SQLite parser** extracts browser history from carved SQLite databases.
+7. **Metadata sink** writes JSONL or CSV records.
 
 ## Concurrency model
 
@@ -23,4 +25,6 @@ Phase 1 focuses on CPU-only carving of JPEG/PNG/GIF from raw disk images.
 - `src/chunk.rs` - chunk scheduling
 - `src/scanner/` - CPU signature scanner
 - `src/carve/` - file-type handlers
-- `src/metadata/` - JSONL sink
+- `src/strings/` - printable string scanning and artefact extraction
+- `src/parsers/sqlite_db.rs` - browser history parsing
+- `src/metadata/` - JSONL and CSV sinks

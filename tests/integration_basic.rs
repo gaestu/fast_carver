@@ -49,6 +49,14 @@ fn sample_gif() -> Vec<u8> {
     data
 }
 
+fn sample_sqlite() -> Vec<u8> {
+    let mut data = vec![0u8; 1024];
+    data[0..16].copy_from_slice(b"SQLite format 3\0");
+    data[16..18].copy_from_slice(&[0x04, 0x00]); // page size 1024
+    data[28..32].copy_from_slice(&[0x00, 0x00, 0x00, 0x01]); // page count 1
+    data
+}
+
 #[test]
 fn integration_carves_basic_formats() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
@@ -58,6 +66,7 @@ fn integration_carves_basic_formats() {
     insert_bytes(&mut image, 1024, &sample_jpeg());
     insert_bytes(&mut image, 65_536, &sample_png());
     insert_bytes(&mut image, 131_072, &sample_gif());
+    insert_bytes(&mut image, 150_000, &sample_sqlite());
 
     fs::write(&input_path, &image).expect("write input");
 
@@ -89,6 +98,7 @@ fn integration_carves_basic_formats() {
         &cfg,
         evidence,
         sig_scanner,
+        None,
         meta_sink,
         &run_output_dir,
         2,
@@ -101,6 +111,7 @@ fn integration_carves_basic_formats() {
     assert!(carved_root.join("jpeg").exists());
     assert!(carved_root.join("png").exists());
     assert!(carved_root.join("gif").exists());
+    assert!(carved_root.join("sqlite").exists());
 
     let meta_path = run_output_dir.join("metadata").join("carved_files.jsonl");
     let contents = fs::read_to_string(meta_path).expect("metadata read");
@@ -118,4 +129,5 @@ fn integration_carves_basic_formats() {
     assert!(types.contains(&"jpeg".to_string()));
     assert!(types.contains(&"png".to_string()));
     assert!(types.contains(&"gif".to_string()));
+    assert!(types.contains(&"sqlite".to_string()));
 }

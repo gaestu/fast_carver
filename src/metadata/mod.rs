@@ -1,4 +1,5 @@
 pub mod jsonl;
+pub mod csv;
 
 use std::path::Path;
 
@@ -10,12 +11,15 @@ use crate::strings::artifacts::StringArtefact;
 #[derive(Debug, Clone, Copy)]
 pub enum MetadataBackendKind {
     Jsonl,
+    Csv,
 }
 
 #[derive(Debug, Error)]
 pub enum MetadataError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("csv error: {0}")]
+    Csv(#[from] ::csv::Error),
     #[error("serde error: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("other error: {0}")]
@@ -40,6 +44,14 @@ pub fn build_sink(
 ) -> Result<Box<dyn MetadataSink>, MetadataError> {
     match backend {
         MetadataBackendKind::Jsonl => Ok(Box::new(jsonl::JsonlSink::new(
+            run_id,
+            tool_version,
+            config_hash,
+            evidence_path,
+            evidence_sha256,
+            run_output_dir,
+        )?)),
+        MetadataBackendKind::Csv => Ok(Box::new(csv::CsvSink::new(
             run_id,
             tool_version,
             config_hash,

@@ -1,6 +1,7 @@
 pub mod gif;
 pub mod jpeg;
 pub mod png;
+pub mod sqlite;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -163,10 +164,6 @@ impl<'a> CarveStream<'a> {
         self.offset = self.offset.saturating_add(buf.len() as u64);
         self.written = self.written.saturating_add(buf.len() as u64);
         Ok(())
-    }
-
-    pub(crate) fn bytes_written(&self) -> u64 {
-        self.written
     }
 
     pub(crate) fn finish(mut self) -> Result<(u64, String, String), CarveError> {

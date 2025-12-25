@@ -5,6 +5,7 @@ use clap::{Parser, ValueEnum};
 #[derive(ValueEnum, Debug, Clone, Copy)]
 pub enum MetadataBackend {
     Jsonl,
+    Csv,
 }
 
 #[derive(Parser, Debug)]
@@ -41,6 +42,14 @@ pub struct CliOptions {
     /// Metadata backend
     #[arg(long, value_enum, default_value_t = MetadataBackend::Jsonl)]
     pub metadata_backend: MetadataBackend,
+
+    /// Enable printable string scanning
+    #[arg(long)]
+    pub scan_strings: bool,
+
+    /// Override minimum string length when scanning
+    #[arg(long)]
+    pub string_min_len: Option<usize>,
 }
 
 pub fn parse() -> CliOptions {

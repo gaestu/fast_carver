@@ -14,13 +14,35 @@ pub struct JsonlSink {
     config_hash: String,
     evidence_path: String,
     evidence_sha256: String,
-    writer: Mutex<BufWriter<File>>,
+    files_writer: Mutex<BufWriter<File>>,
+    strings_writer: Mutex<BufWriter<File>>,
+    history_writer: Mutex<BufWriter<File>>,
 }
 
 #[derive(Serialize)]
 struct CarvedFileRecord<'a> {
     #[serde(flatten)]
     file: &'a CarvedFile,
+    tool_version: &'a str,
+    config_hash: &'a str,
+    evidence_path: &'a str,
+    evidence_sha256: &'a str,
+}
+
+#[derive(Serialize)]
+struct StringArtefactRecord<'a> {
+    #[serde(flatten)]
+    artefact: &'a StringArtefact,
+    tool_version: &'a str,
+    config_hash: &'a str,
+    evidence_path: &'a str,
+    evidence_sha256: &'a str,
+}
+
+#[derive(Serialize)]
+struct BrowserHistoryRecord<'a> {
+    #[serde(flatten)]
+    record: &'a crate::parsers::browser::BrowserHistoryRecord,
     tool_version: &'a str,
     config_hash: &'a str,
     evidence_path: &'a str,
@@ -38,14 +60,20 @@ impl JsonlSink {
     ) -> Result<Self, MetadataError> {
         let meta_dir = run_output_dir.join("metadata");
         std::fs::create_dir_all(&meta_dir)?;
-        let path = meta_dir.join("carved_files.jsonl");
-        let file = File::create(path)?;
+        let files_path = meta_dir.join("carved_files.jsonl");
+        let strings_path = meta_dir.join("string_artefacts.jsonl");
+        let history_path = meta_dir.join("browser_history.jsonl");
+        let files_file = File::create(files_path)?;
+        let strings_file = File::create(strings_path)?;
+        let history_file = File::create(history_path)?;
         Ok(Self {
             tool_version: tool_version.to_string(),
             config_hash: config_hash.to_string(),
             evidence_path: evidence_path.to_string_lossy().to_string(),
             evidence_sha256: evidence_sha256.to_string(),
-            writer: Mutex::new(BufWriter::new(file)),
+            files_writer: Mutex::new(BufWriter::new(files_file)),
+            strings_writer: Mutex::new(BufWriter::new(strings_file)),
+            history_writer: Mutex::new(BufWriter::new(history_file)),
         })
     }
 }
@@ -59,23 +87,47 @@ impl MetadataSink for JsonlSink {
             evidence_path: &self.evidence_path,
             evidence_sha256: &self.evidence_sha256,
         };
-        let mut guard = self.writer.lock().unwrap();
+        let mut guard = self.files_writer.lock().unwrap();
         serde_json::to_writer(&mut *guard, &record)?;
         guard.write_all(b"\n")?;
         Ok(())
     }
 
-    fn record_string(&self, _artefact: &StringArtefact) -> Result<(), MetadataError> {
+    fn record_string(&self, artefact: &StringArtefact) -> Result<(), MetadataError> {
+        let record = StringArtefactRecord {
+            artefact,
+            tool_version: &self.tool_version,
+            config_hash: &self.config_hash,
+            evidence_path: &self.evidence_path,
+            evidence_sha256: &self.evidence_sha256,
+        };
+        let mut guard = self.strings_writer.lock().unwrap();
+        serde_json::to_writer(&mut *guard, &record)?;
+        guard.write_all(b"\n")?;
         Ok(())
     }
 
-    fn record_history(&self, _record: &crate::parsers::browser::BrowserHistoryRecord) -> Result<(), MetadataError> {
+    fn record_history(&self, record: &crate::parsers::browser::BrowserHistoryRecord) -> Result<(), MetadataError> {
+        let record = BrowserHistoryRecord {
+            record,
+            tool_version: &self.tool_version,
+            config_hash: &self.config_hash,
+            evidence_path: &self.evidence_path,
+            evidence_sha256: &self.evidence_sha256,
+        };
+        let mut guard = self.history_writer.lock().unwrap();
+        serde_json::to_writer(&mut *guard, &record)?;
+        guard.write_all(b"\n")?;
         Ok(())
     }
 
     fn flush(&self) -> Result<(), MetadataError> {
-        let mut guard = self.writer.lock().unwrap();
-        guard.flush()?;
+        let mut files = self.files_writer.lock().unwrap();
+        let mut strings = self.strings_writer.lock().unwrap();
+        let mut history = self.history_writer.lock().unwrap();
+        files.flush()?;
+        strings.flush()?;
+        history.flush()?;
         Ok(())
     }
 }

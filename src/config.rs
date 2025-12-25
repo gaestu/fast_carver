@@ -26,6 +26,10 @@ pub struct Config {
     pub run_id: String,
     pub overlap_bytes: u64,
     pub enable_string_scan: bool,
+    #[serde(default = "default_string_min_len")]
+    pub string_min_len: usize,
+    #[serde(default = "default_string_max_len")]
+    pub string_max_len: usize,
     pub file_types: Vec<FileTypeConfig>,
 }
 
@@ -71,4 +75,12 @@ fn rand_suffix() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("{:08x}", nanos)
+}
+
+fn default_string_min_len() -> usize {
+    6
+}
+
+fn default_string_max_len() -> usize {
+    1024
 }

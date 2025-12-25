@@ -6,7 +6,9 @@ The default config is `config/default.yml`.
 
 - `run_id` (string): optional; if empty, a timestamp-based ID is generated.
 - `overlap_bytes` (u64): overlap between chunks.
-- `enable_string_scan` (bool): not used in Phase 1.
+- `enable_string_scan` (bool): enable printable string scanning.
+- `string_min_len` (usize): minimum printable string length.
+- `string_max_len` (usize): maximum string length per span.
 - `file_types` (list): enabled file types and patterns.
 
 ## File type configuration
@@ -37,4 +39,13 @@ file_types:
     max_size: 104857600
     min_size: 16
     validator: "jpeg"
+  - id: "sqlite"
+    extensions: ["sqlite"]
+    header_patterns:
+      - id: "sqlite_header"
+        hex: "53514C69746520666F726D6174203300"
+    footer_patterns: []
+    max_size: 536870912
+    min_size: 100
+    validator: "sqlite"
 ```

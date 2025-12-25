@@ -43,3 +43,35 @@ Example:
   "evidence_sha256": ""
 }
 ```
+
+## String artefacts (`string_artefacts.jsonl`)
+
+Each line in `metadata/string_artefacts.jsonl` is a JSON object with:
+
+- `run_id`
+- `artefact_kind`
+- `content`
+- `encoding`
+- `global_start`
+- `global_end`
+- `tool_version`
+- `config_hash`
+- `evidence_path`
+- `evidence_sha256`
+
+## Browser history (`browser_history.jsonl`)
+
+Each line in `metadata/browser_history.jsonl` is a JSON object with:
+
+- `run_id`
+- `browser`
+- `profile`
+- `url`
+- `title`
+- `visit_time`
+- `visit_source`
+- `source_file`
+- `tool_version`
+- `config_hash`
+- `evidence_path`
+- `evidence_sha256`

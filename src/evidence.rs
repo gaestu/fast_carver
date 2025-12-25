@@ -131,6 +131,10 @@ mod ewf {
         len: u64,
     }
 
+    // SAFETY: libewf handle access is serialized via the mutex.
+    unsafe impl Send for EwfSource {}
+    unsafe impl Sync for EwfSource {}
+
     impl EwfSource {
         pub fn open(path: &Path) -> Result<Self, EvidenceError> {
             let c_path = CString::new(path.to_string_lossy().as_bytes())
@@ -206,7 +210,7 @@ mod ewf {
                 )));
             }
 
-            let mut guard = self.handle.lock().unwrap();
+            let guard = self.handle.lock().unwrap();
             if guard.handle.is_null() {
                 return Err(EvidenceError::Unsupported("libewf handle closed".to_string()));
             }
@@ -329,6 +333,8 @@ mod tests {
             chunk_size_mib: 1,
             overlap_kib: None,
             metadata_backend: MetadataBackend::Jsonl,
+            scan_strings: false,
+            string_min_len: None,
         };
 
         let result = super::open_source(&opts);

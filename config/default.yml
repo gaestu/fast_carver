@@ -1,6 +1,8 @@
 run_id: ""
 overlap_bytes: 65536
 enable_string_scan: false
+string_min_len: 6
+string_max_len: 1024
 file_types:
   - id: "jpeg"
     extensions: ["jpg", "jpeg"]
@@ -31,3 +33,12 @@ file_types:
     max_size: 104857600
     min_size: 16
     validator: "gif"
+  - id: "sqlite"
+    extensions: ["sqlite"]
+    header_patterns:
+      - id: "sqlite_header"
+        hex: "53514C69746520666F726D6174203300"
+    footer_patterns: []
+    max_size: 536870912
+    min_size: 100
+    validator: "sqlite"

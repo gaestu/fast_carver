@@ -10,6 +10,7 @@ use fastcarve::{
     logging,
     metadata,
     scanner,
+    strings,
     util,
 };
 
@@ -18,7 +19,13 @@ fn main() -> Result<()> {
 
     let cli_opts = cli::parse();
     let loaded = config::load_config(cli_opts.config_path.as_deref())?;
-    let cfg = loaded.config;
+    let mut cfg = loaded.config;
+    if cli_opts.scan_strings {
+        cfg.enable_string_scan = true;
+    }
+    if let Some(min_len) = cli_opts.string_min_len {
+        cfg.string_min_len = min_len;
+    }
 
     let run_output_dir = cli_opts.output.join(&cfg.run_id);
     std::fs::create_dir_all(&run_output_dir)?;
@@ -53,6 +60,12 @@ fn main() -> Result<()> {
     let sig_scanner = scanner::build_signature_scanner(&cfg)?;
     let sig_scanner = Arc::from(sig_scanner);
 
+    let string_scanner = if cfg.enable_string_scan {
+        Some(Arc::from(strings::build_string_scanner(&cfg)?))
+    } else {
+        None
+    };
+
     let chunk_size = cli_opts.chunk_size_mib.saturating_mul(1024 * 1024);
     let overlap = cli_opts
         .overlap_kib
@@ -63,6 +76,7 @@ fn main() -> Result<()> {
         &cfg,
         evidence_source,
         sig_scanner,
+        string_scanner,
         meta_sink,
         &run_output_dir,
         cli_opts.workers,
