@@ -1,4 +1,6 @@
 pub mod cpu;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 use crate::chunk::ScanChunk;
 
@@ -23,7 +25,31 @@ pub trait SignatureScanner: Send + Sync {
 
 use crate::config::Config;
 use anyhow::Result;
+use tracing::warn;
 
-pub fn build_signature_scanner(cfg: &Config) -> Result<Box<dyn SignatureScanner>> {
+pub fn build_signature_scanner(cfg: &Config, use_gpu: bool) -> Result<Box<dyn SignatureScanner>> {
+    if use_gpu {
+        #[cfg(feature = "gpu")]
+        {
+            return Ok(Box::new(gpu::GpuScanner::new(cfg)?));
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            warn!("gpu flag set but binary built without gpu feature, falling back to cpu");
+        }
+    }
     Ok(Box::new(cpu::CpuScanner::new(cfg)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_signature_scanner;
+    use crate::config;
+
+    #[test]
+    fn builds_scanner_with_gpu_flag() {
+        let loaded = config::load_config(None).expect("config");
+        let scanner = build_signature_scanner(&loaded.config, true).expect("scanner");
+        let _ = scanner;
+    }
 }

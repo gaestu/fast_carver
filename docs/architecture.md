@@ -1,6 +1,7 @@
 # Architecture (Phase 1)
 
 Phase 2 adds SQLite carving, string scanning, browser history extraction, and PDF/ZIP/WEBP carving.
+Phase 3 adds optional GPU-accelerated signature and string scanning (feature `gpu`), currently implemented as CPU fallback stubs.
 
 ## Pipeline
 

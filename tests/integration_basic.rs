@@ -167,7 +167,7 @@ fn integration_carves_basic_formats() {
     )
     .expect("metadata sink");
 
-    let sig_scanner = scanner::build_signature_scanner(&cfg).expect("scanner");
+    let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn fastcarve::scanner::SignatureScanner> = Arc::from(sig_scanner);
 
     util::run_pipeline(

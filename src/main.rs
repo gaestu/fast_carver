@@ -57,11 +57,11 @@ fn main() -> Result<()> {
         &run_output_dir,
     )?;
 
-    let sig_scanner = scanner::build_signature_scanner(&cfg)?;
+    let sig_scanner = scanner::build_signature_scanner(&cfg, cli_opts.gpu)?;
     let sig_scanner = Arc::from(sig_scanner);
 
     let string_scanner = if cfg.enable_string_scan {
-        Some(Arc::from(strings::build_string_scanner(&cfg)?))
+        Some(Arc::from(strings::build_string_scanner(&cfg, cli_opts.gpu)?))
     } else {
         None
     };

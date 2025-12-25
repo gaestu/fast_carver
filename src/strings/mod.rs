@@ -1,4 +1,6 @@
 pub mod cpu;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 use crate::chunk::ScanChunk;
 
@@ -16,12 +18,40 @@ pub trait StringScanner: Send + Sync {
 
 use crate::config::Config;
 use anyhow::Result;
+use tracing::warn;
 
-pub fn build_string_scanner(cfg: &Config) -> Result<Box<dyn StringScanner>> {
+pub fn build_string_scanner(cfg: &Config, use_gpu: bool) -> Result<Box<dyn StringScanner>> {
+    if use_gpu {
+        #[cfg(feature = "gpu")]
+        {
+            return Ok(Box::new(gpu::GpuStringScanner::new(
+                cfg.string_min_len,
+                cfg.string_max_len,
+            )));
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            warn!("gpu flag set but binary built without gpu feature, falling back to cpu");
+        }
+    }
+
     Ok(Box::new(cpu::CpuStringScanner::new(
         cfg.string_min_len,
         cfg.string_max_len,
     )))
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::build_string_scanner;
+    use crate::config;
+
+    #[test]
+    fn builds_string_scanner_with_gpu_flag() {
+        let loaded = config::load_config(None).expect("config");
+        let scanner = build_string_scanner(&loaded.config, true).expect("scanner");
+        let _ = scanner;
+    }
 }
 
 pub mod artifacts {

@@ -14,6 +14,18 @@ E01 input (requires `libewf`):
 cargo run --features ewf -- --input /path/to/image.E01 --output ./output
 ```
 
+GPU signature scanning (fallbacks to CPU if GPU is unavailable):
+
+```bash
+cargo run --features gpu -- --input /path/to/image.dd --output ./output --gpu
+```
+
+GPU string scanning (fallbacks to CPU if GPU is unavailable and requires `--scan-strings`):
+
+```bash
+cargo run --features gpu -- --input /path/to/image.dd --output ./output --gpu --scan-strings
+```
+
 String scanning (URLs/emails/phones):
 
 ```bash
@@ -76,7 +88,7 @@ See `docs/architecture.md` for details.
 ## Notes
 
 - E01 support is available when built with `--features ewf` and requires `libewf` installed.
-- GPU acceleration is not implemented yet.
+- GPU signature and string scanning are stubbed and currently use CPU fallbacks until a real backend is added.
 
 ## License
 
