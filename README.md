@@ -17,13 +17,21 @@ cargo run --features ewf -- --input /path/to/image.E01 --output ./output
 GPU signature scanning (fallbacks to CPU if GPU is unavailable):
 
 ```bash
+# OpenCL backend
 cargo run --features gpu-opencl -- --input /path/to/image.dd --output ./output --gpu
+
+# CUDA backend (requires NVIDIA CUDA toolkit with NVRTC)
+cargo run --features gpu-cuda -- --input /path/to/image.dd --output ./output --gpu
 ```
 
 GPU string scanning (fallbacks to CPU if GPU is unavailable and requires `--scan-strings`):
 
 ```bash
+# OpenCL backend
 cargo run --features gpu-opencl -- --input /path/to/image.dd --output ./output --gpu --scan-strings
+
+# CUDA backend
+cargo run --features gpu-cuda -- --input /path/to/image.dd --output ./output --gpu --scan-strings
 ```
 
 String scanning (URLs/emails/phones):
@@ -91,8 +99,29 @@ See `docs/architecture.md` for details.
 ## Notes
 
 - E01 support is available when built with `--features ewf` and requires `libewf` installed.
-- GPU signature and string scanning are implemented via OpenCL when built with `--features gpu-opencl` (or `--features gpu` as alias). CUDA backend is planned.
-- OpenCL builds require an ICD loader with `libOpenCL.so` available; install the dev package or provide a symlink if the linker cannot find `-lOpenCL`.
+- GPU signature and string scanning are implemented via OpenCL (`--features gpu-opencl` or `--features gpu` as alias) or CUDA (`--features gpu-cuda`).
+- **OpenCL** builds require an ICD loader with `libOpenCL.so` available; install the dev package (`ocl-icd-devel` on Fedora) or provide a symlink if the linker cannot find `-lOpenCL`.
+- **CUDA** builds require the full NVIDIA CUDA toolkit including NVRTC (runtime compilation). The build system auto-detects your installed CUDA version. Install via your distro's package manager or from [NVIDIA's CUDA downloads](https://developer.nvidia.com/cuda-downloads). On Fedora:
+  ```bash
+  dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora39/x86_64/cuda-fedora39.repo
+  dnf install cuda-toolkit
+  ```
+
+## Testing
+
+Run the test suite:
+
+```bash
+cargo test                       # default (CPU-only)
+cargo test --features gpu-opencl # with OpenCL backend
+cargo test --features gpu-cuda   # with CUDA backend
+```
+
+CUDA tests skip automatically on machines without a CUDA device. To force CUDA tests to fail on any error (useful for CI on CUDA-capable hosts):
+
+```bash
+FASTCARVE_REQUIRE_CUDA=1 cargo test --features gpu-cuda
+```
 
 ## License
 

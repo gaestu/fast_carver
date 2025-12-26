@@ -21,6 +21,7 @@ memchr = "2"
 num_cpus = "1"
 once_cell = "1"
 opencl3 = { version = "0.9", optional = true }
+cudarc = { version = "0.12", optional = true, features = ["cuda-version-from-build-system"] }
 parquet = "51"
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -39,5 +40,5 @@ tempfile = "3"
 default = []
 ewf = []
 gpu-opencl = ["opencl3"]
-gpu-cuda = []
+gpu-cuda = ["cudarc"]
 gpu = ["gpu-opencl"]

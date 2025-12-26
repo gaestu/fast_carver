@@ -1,7 +1,22 @@
 # Architecture (Phase 1)
 
 Phase 2 adds SQLite carving, string scanning, browser history extraction, and PDF/ZIP/WEBP carving.
-Phase 3 adds optional GPU-accelerated signature and string scanning (feature `gpu-opencl` or alias `gpu`), with CPU fallback when OpenCL is unavailable. A CUDA backend is planned.
+Phase 3 adds optional GPU-accelerated signature and string scanning via OpenCL (`gpu-opencl` / `gpu` alias) or CUDA (`gpu-cuda`), with CPU fallback when no GPU is available.
+
+## GPU Backends
+
+### OpenCL
+- Feature: `--features gpu-opencl` (or `--features gpu`)
+- Requirements: OpenCL ICD loader (`libOpenCL.so`, install `ocl-icd-devel` on Fedora)
+- Supports any OpenCL-capable GPU (NVIDIA, AMD, Intel)
+
+### CUDA
+- Feature: `--features gpu-cuda`
+- Requirements: NVIDIA CUDA toolkit with NVRTC (runtime compilation)
+- Auto-detects installed CUDA version at build time
+- Only supports NVIDIA GPUs
+
+Both backends compile kernels at scanner initialization and fall back to CPU if initialization fails.
 
 ## Pipeline
 
