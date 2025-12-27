@@ -73,7 +73,7 @@ Build a **high-speed, forensic-grade file and artefact carver** that:
 
 5. **Metadata & reporting**
 
-   * Record every carved entity in structured form (JSONL/CSV/DB).
+   * Record every carved entity in structured form (JSONL/CSV/Parquet).
    * Provide run-level statistics (bytes scanned, hits, valid files, errors).
 
 ### 2.2 Non-Functional Requirements
@@ -440,14 +440,15 @@ pub trait MetadataSink: Send + Sync {
 
 * `JsonlSink` – writes one JSON object per line.
 * `CsvSink` – separate CSV files for file records, strings, history.
-* `SqliteSink` – tables:
+* `ParquetSink` – columnar files per category.
+* `SqliteSink` – tables (deferred; replaced by Parquet for now):
 
   * `carved_files`
   * `string_artefacts`
   * `browser_history`
-* `DuckdbSink` – similar schema, optimised for analytics.
+* `DuckdbSink` – similar schema, optimised for analytics (deferred; use Parquet + DuckDB query).
 
-Start with `JsonlSink` + `CsvSink` (simplest for v1).
+Start with `JsonlSink` + `CsvSink` (simplest for v1). Parquet is the primary analytics output; SQLite/DuckDB sinks are out of scope for now.
 
 ### 4.9 Logging & Metrics (`logging` module)
 

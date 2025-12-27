@@ -17,7 +17,7 @@ use parquet::file::properties::WriterProperties;
 
 use crate::carve::CarvedFile;
 use crate::config::Config;
-use crate::metadata::{MetadataError, MetadataSink};
+use crate::metadata::{MetadataError, MetadataSink, RunSummary};
 use crate::parsers::browser::BrowserHistoryRecord;
 use crate::strings::artifacts::{ArtefactKind, StringArtefact};
 
@@ -44,6 +44,7 @@ enum ParquetCategory {
     ArtefactsEmails,
     ArtefactsPhones,
     BrowserHistory,
+    RunSummary,
 }
 
 impl ParquetCategory {
@@ -61,6 +62,7 @@ impl ParquetCategory {
             ParquetCategory::ArtefactsEmails => "artefacts_emails.parquet",
             ParquetCategory::ArtefactsPhones => "artefacts_phones.parquet",
             ParquetCategory::BrowserHistory => "browser_history.parquet",
+            ParquetCategory::RunSummary => "run_summary.parquet",
         }
     }
 
@@ -149,12 +151,23 @@ struct BrowserHistoryRow {
     table_name: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct RunSummaryRow {
+    bytes_scanned: i64,
+    chunks_processed: i64,
+    hits_found: i64,
+    files_carved: i64,
+    string_spans: i64,
+    artefacts_extracted: i64,
+}
+
 enum CategoryBuffer {
     Files(Vec<FileRow>),
     Urls(Vec<UrlArtefactRow>),
     Emails(Vec<EmailArtefactRow>),
     Phones(Vec<PhoneArtefactRow>),
     History(Vec<BrowserHistoryRow>),
+    Summary(Vec<RunSummaryRow>),
 }
 
 struct CategoryWriter {
@@ -185,6 +198,7 @@ impl CategoryWriter {
             ParquetCategory::ArtefactsEmails => CategoryBuffer::Emails(Vec::new()),
             ParquetCategory::ArtefactsPhones => CategoryBuffer::Phones(Vec::new()),
             ParquetCategory::BrowserHistory => CategoryBuffer::History(Vec::new()),
+            ParquetCategory::RunSummary => CategoryBuffer::Summary(Vec::new()),
             _ => CategoryBuffer::Files(Vec::new()),
         };
         Ok(Self {
@@ -264,6 +278,21 @@ impl CategoryWriter {
         }
     }
 
+    fn append_summary(&mut self, row: RunSummaryRow) -> Result<(), MetadataError> {
+        match &mut self.buffer {
+            CategoryBuffer::Summary(rows) => {
+                rows.push(row);
+                if rows.len() >= self.row_group_size {
+                    self.flush_buffer()?;
+                }
+                Ok(())
+            }
+            _ => Err(MetadataError::Other(
+                "run summary row on non-summary category".to_string(),
+            )),
+        }
+    }
+
     fn flush_buffer(&mut self) -> Result<(), MetadataError> {
         if self.buffer_len() == 0 {
             return Ok(());
@@ -294,6 +323,11 @@ impl CategoryWriter {
                 rows.clear();
                 batch
             }
+            CategoryBuffer::Summary(rows) => {
+                let batch = build_summary_batch(&self.context, rows, &self.schema)?;
+                rows.clear();
+                batch
+            }
         };
         self.writer
             .write(&batch)
@@ -320,6 +354,7 @@ impl CategoryWriter {
             CategoryBuffer::Emails(rows) => rows.len(),
             CategoryBuffer::Phones(rows) => rows.len(),
             CategoryBuffer::History(rows) => rows.len(),
+            CategoryBuffer::Summary(rows) => rows.len(),
         }
     }
 }
@@ -340,6 +375,7 @@ struct ParquetSinkInner {
     artefacts_emails: Option<CategoryWriter>,
     artefacts_phones: Option<CategoryWriter>,
     browser_history: Option<CategoryWriter>,
+    run_summary: Option<CategoryWriter>,
 }
 
 impl ParquetSinkInner {
@@ -360,6 +396,7 @@ impl ParquetSinkInner {
             ParquetCategory::ArtefactsEmails => &mut self.artefacts_emails,
             ParquetCategory::ArtefactsPhones => &mut self.artefacts_phones,
             ParquetCategory::BrowserHistory => &mut self.browser_history,
+            ParquetCategory::RunSummary => &mut self.run_summary,
         };
 
         if slot.is_none() {
@@ -413,6 +450,9 @@ impl ParquetSinkInner {
         if let Some(writer) = &mut self.browser_history {
             writer.finish()?;
         }
+        if let Some(writer) = &mut self.run_summary {
+            writer.finish()?;
+        }
         Ok(())
     }
 }
@@ -458,6 +498,7 @@ impl ParquetSink {
                 artefacts_emails: None,
                 artefacts_phones: None,
                 browser_history: None,
+                run_summary: None,
             }),
         })
     }
@@ -525,6 +566,20 @@ impl MetadataSink for ParquetSink {
         let mut inner = self.inner.lock().unwrap();
         let writer = inner.get_or_create_writer(ParquetCategory::BrowserHistory)?;
         writer.append_history(row)
+    }
+
+    fn record_run_summary(&self, summary: &RunSummary) -> Result<(), MetadataError> {
+        let row = RunSummaryRow {
+            bytes_scanned: to_i64(summary.bytes_scanned)?,
+            chunks_processed: to_i64(summary.chunks_processed)?,
+            hits_found: to_i64(summary.hits_found)?,
+            files_carved: to_i64(summary.files_carved)?,
+            string_spans: to_i64(summary.string_spans)?,
+            artefacts_extracted: to_i64(summary.artefacts_extracted)?,
+        };
+        let mut inner = self.inner.lock().unwrap();
+        let writer = inner.get_or_create_writer(ParquetCategory::RunSummary)?;
+        writer.append_summary(row)
     }
 
     fn flush(&self) -> Result<(), MetadataError> {
@@ -603,6 +658,7 @@ fn schema_for_category(category: ParquetCategory) -> SchemaRef {
             Field::new("tool_version", DataType::Utf8, false),
             Field::new("config_hash", DataType::Utf8, false),
             Field::new("evidence_path", DataType::Utf8, false),
+            Field::new("evidence_sha256", DataType::Utf8, false),
             Field::new("global_start", DataType::Int64, false),
             Field::new("global_end", DataType::Int64, false),
             Field::new("url", DataType::Utf8, false),
@@ -621,6 +677,7 @@ fn schema_for_category(category: ParquetCategory) -> SchemaRef {
             Field::new("tool_version", DataType::Utf8, false),
             Field::new("config_hash", DataType::Utf8, false),
             Field::new("evidence_path", DataType::Utf8, false),
+            Field::new("evidence_sha256", DataType::Utf8, false),
             Field::new("global_start", DataType::Int64, false),
             Field::new("global_end", DataType::Int64, false),
             Field::new("email", DataType::Utf8, false),
@@ -635,6 +692,7 @@ fn schema_for_category(category: ParquetCategory) -> SchemaRef {
             Field::new("tool_version", DataType::Utf8, false),
             Field::new("config_hash", DataType::Utf8, false),
             Field::new("evidence_path", DataType::Utf8, false),
+            Field::new("evidence_sha256", DataType::Utf8, false),
             Field::new("global_start", DataType::Int64, false),
             Field::new("global_end", DataType::Int64, false),
             Field::new("phone_raw", DataType::Utf8, false),
@@ -649,6 +707,7 @@ fn schema_for_category(category: ParquetCategory) -> SchemaRef {
             Field::new("tool_version", DataType::Utf8, false),
             Field::new("config_hash", DataType::Utf8, false),
             Field::new("evidence_path", DataType::Utf8, false),
+            Field::new("evidence_sha256", DataType::Utf8, false),
             Field::new("source_file", DataType::Utf8, false),
             Field::new("browser", DataType::Utf8, false),
             Field::new("profile", DataType::Utf8, false),
@@ -662,6 +721,19 @@ fn schema_for_category(category: ParquetCategory) -> SchemaRef {
             Field::new("visit_source", DataType::Utf8, true),
             Field::new("row_id", DataType::Int64, true),
             Field::new("table_name", DataType::Utf8, true),
+        ])),
+        ParquetCategory::RunSummary => Arc::new(Schema::new(vec![
+            Field::new("run_id", DataType::Utf8, false),
+            Field::new("tool_version", DataType::Utf8, false),
+            Field::new("config_hash", DataType::Utf8, false),
+            Field::new("evidence_path", DataType::Utf8, false),
+            Field::new("evidence_sha256", DataType::Utf8, false),
+            Field::new("bytes_scanned", DataType::Int64, false),
+            Field::new("chunks_processed", DataType::Int64, false),
+            Field::new("hits_found", DataType::Int64, false),
+            Field::new("files_carved", DataType::Int64, false),
+            Field::new("string_spans", DataType::Int64, false),
+            Field::new("artefacts_extracted", DataType::Int64, false),
         ])),
         _ => Arc::new(Schema::empty()),
     }
@@ -746,6 +818,7 @@ fn build_urls_batch(
     let mut tool_version = StringBuilder::new();
     let mut config_hash = StringBuilder::new();
     let mut evidence_path = StringBuilder::new();
+    let mut evidence_sha256 = StringBuilder::new();
     let mut global_start = Int64Builder::new();
     let mut global_end = Int64Builder::new();
     let mut url = StringBuilder::new();
@@ -764,6 +837,7 @@ fn build_urls_batch(
         tool_version.append_value(&ctx.tool_version);
         config_hash.append_value(&ctx.config_hash);
         evidence_path.append_value(&ctx.evidence_path);
+        evidence_sha256.append_value(&ctx.evidence_sha256);
         global_start.append_value(row.global_start);
         global_end.append_value(row.global_end);
         url.append_value(&row.url);
@@ -783,6 +857,7 @@ fn build_urls_batch(
         Arc::new(tool_version.finish()),
         Arc::new(config_hash.finish()),
         Arc::new(evidence_path.finish()),
+        Arc::new(evidence_sha256.finish()),
         Arc::new(global_start.finish()),
         Arc::new(global_end.finish()),
         Arc::new(url.finish()),
@@ -810,6 +885,7 @@ fn build_emails_batch(
     let mut tool_version = StringBuilder::new();
     let mut config_hash = StringBuilder::new();
     let mut evidence_path = StringBuilder::new();
+    let mut evidence_sha256 = StringBuilder::new();
     let mut global_start = Int64Builder::new();
     let mut global_end = Int64Builder::new();
     let mut email = StringBuilder::new();
@@ -824,6 +900,7 @@ fn build_emails_batch(
         tool_version.append_value(&ctx.tool_version);
         config_hash.append_value(&ctx.config_hash);
         evidence_path.append_value(&ctx.evidence_path);
+        evidence_sha256.append_value(&ctx.evidence_sha256);
         global_start.append_value(row.global_start);
         global_end.append_value(row.global_end);
         email.append_value(&row.email);
@@ -839,6 +916,7 @@ fn build_emails_batch(
         Arc::new(tool_version.finish()),
         Arc::new(config_hash.finish()),
         Arc::new(evidence_path.finish()),
+        Arc::new(evidence_sha256.finish()),
         Arc::new(global_start.finish()),
         Arc::new(global_end.finish()),
         Arc::new(email.finish()),
@@ -862,6 +940,7 @@ fn build_phones_batch(
     let mut tool_version = StringBuilder::new();
     let mut config_hash = StringBuilder::new();
     let mut evidence_path = StringBuilder::new();
+    let mut evidence_sha256 = StringBuilder::new();
     let mut global_start = Int64Builder::new();
     let mut global_end = Int64Builder::new();
     let mut phone_raw = StringBuilder::new();
@@ -876,6 +955,7 @@ fn build_phones_batch(
         tool_version.append_value(&ctx.tool_version);
         config_hash.append_value(&ctx.config_hash);
         evidence_path.append_value(&ctx.evidence_path);
+        evidence_sha256.append_value(&ctx.evidence_sha256);
         global_start.append_value(row.global_start);
         global_end.append_value(row.global_end);
         phone_raw.append_value(&row.phone_raw);
@@ -891,6 +971,7 @@ fn build_phones_batch(
         Arc::new(tool_version.finish()),
         Arc::new(config_hash.finish()),
         Arc::new(evidence_path.finish()),
+        Arc::new(evidence_sha256.finish()),
         Arc::new(global_start.finish()),
         Arc::new(global_end.finish()),
         Arc::new(phone_raw.finish()),
@@ -914,6 +995,7 @@ fn build_history_batch(
     let mut tool_version = StringBuilder::new();
     let mut config_hash = StringBuilder::new();
     let mut evidence_path = StringBuilder::new();
+    let mut evidence_sha256 = StringBuilder::new();
     let mut source_file = StringBuilder::new();
     let mut browser = StringBuilder::new();
     let mut profile = StringBuilder::new();
@@ -929,6 +1011,7 @@ fn build_history_batch(
         tool_version.append_value(&ctx.tool_version);
         config_hash.append_value(&ctx.config_hash);
         evidence_path.append_value(&ctx.evidence_path);
+        evidence_sha256.append_value(&ctx.evidence_sha256);
         source_file.append_value(&row.source_file);
         browser.append_value(&row.browser);
         profile.append_value(&row.profile);
@@ -945,6 +1028,7 @@ fn build_history_batch(
         Arc::new(tool_version.finish()),
         Arc::new(config_hash.finish()),
         Arc::new(evidence_path.finish()),
+        Arc::new(evidence_sha256.finish()),
         Arc::new(source_file.finish()),
         Arc::new(browser.finish()),
         Arc::new(profile.finish()),
@@ -954,6 +1038,55 @@ fn build_history_batch(
         Arc::new(visit_source.finish()),
         Arc::new(row_id.finish()),
         Arc::new(table_name.finish()),
+    ];
+
+    RecordBatch::try_new(Arc::clone(schema), arrays)
+        .map_err(|err| MetadataError::Other(format!("parquet batch error: {err}")))
+}
+
+fn build_summary_batch(
+    ctx: &ParquetContext,
+    rows: &[RunSummaryRow],
+    schema: &SchemaRef,
+) -> Result<RecordBatch, MetadataError> {
+    let mut run_id = StringBuilder::new();
+    let mut tool_version = StringBuilder::new();
+    let mut config_hash = StringBuilder::new();
+    let mut evidence_path = StringBuilder::new();
+    let mut evidence_sha256 = StringBuilder::new();
+    let mut bytes_scanned = Int64Builder::new();
+    let mut chunks_processed = Int64Builder::new();
+    let mut hits_found = Int64Builder::new();
+    let mut files_carved = Int64Builder::new();
+    let mut string_spans = Int64Builder::new();
+    let mut artefacts_extracted = Int64Builder::new();
+
+    for row in rows {
+        run_id.append_value(&ctx.run_id);
+        tool_version.append_value(&ctx.tool_version);
+        config_hash.append_value(&ctx.config_hash);
+        evidence_path.append_value(&ctx.evidence_path);
+        evidence_sha256.append_value(&ctx.evidence_sha256);
+        bytes_scanned.append_value(row.bytes_scanned);
+        chunks_processed.append_value(row.chunks_processed);
+        hits_found.append_value(row.hits_found);
+        files_carved.append_value(row.files_carved);
+        string_spans.append_value(row.string_spans);
+        artefacts_extracted.append_value(row.artefacts_extracted);
+    }
+
+    let arrays: Vec<ArrayRef> = vec![
+        Arc::new(run_id.finish()),
+        Arc::new(tool_version.finish()),
+        Arc::new(config_hash.finish()),
+        Arc::new(evidence_path.finish()),
+        Arc::new(evidence_sha256.finish()),
+        Arc::new(bytes_scanned.finish()),
+        Arc::new(chunks_processed.finish()),
+        Arc::new(hits_found.finish()),
+        Arc::new(files_carved.finish()),
+        Arc::new(string_spans.finish()),
+        Arc::new(artefacts_extracted.finish()),
     ];
 
     RecordBatch::try_new(Arc::clone(schema), arrays)

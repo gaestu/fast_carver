@@ -28,6 +28,8 @@ pub struct Config {
     pub run_id: String,
     pub overlap_bytes: u64,
     pub enable_string_scan: bool,
+    #[serde(default)]
+    pub string_scan_utf16: bool,
     #[serde(default = "default_string_min_len")]
     pub string_min_len: usize,
     #[serde(default = "default_string_max_len")]

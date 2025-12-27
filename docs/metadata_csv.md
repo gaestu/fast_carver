@@ -55,3 +55,19 @@ Columns:
 - `config_hash`
 - `evidence_path`
 - `evidence_sha256`
+
+## run_summary.csv
+
+Columns:
+
+- `run_id`
+- `bytes_scanned`
+- `chunks_processed`
+- `hits_found`
+- `files_carved`
+- `string_spans`
+- `artefacts_extracted`
+- `tool_version`
+- `config_hash`
+- `evidence_path`
+- `evidence_sha256`

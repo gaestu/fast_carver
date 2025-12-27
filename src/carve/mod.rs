@@ -1,5 +1,6 @@
 pub mod gif;
 pub mod jpeg;
+pub mod footer;
 pub mod png;
 pub mod sqlite;
 pub mod pdf;

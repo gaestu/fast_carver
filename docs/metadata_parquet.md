@@ -49,6 +49,7 @@ URL schema:
 - `tool_version` (string)
 - `config_hash` (string)
 - `evidence_path` (string)
+- `evidence_sha256` (string)
 - `global_start` (int64)
 - `global_end` (int64)
 - `url` (string)
@@ -68,6 +69,7 @@ Email schema:
 - `tool_version` (string)
 - `config_hash` (string)
 - `evidence_path` (string)
+- `evidence_sha256` (string)
 - `global_start` (int64)
 - `global_end` (int64)
 - `email` (string)
@@ -83,6 +85,7 @@ Phone schema:
 - `tool_version` (string)
 - `config_hash` (string)
 - `evidence_path` (string)
+- `evidence_sha256` (string)
 - `global_start` (int64)
 - `global_end` (int64)
 - `phone_raw` (string)
@@ -100,6 +103,7 @@ Phone schema:
 - `tool_version` (string)
 - `config_hash` (string)
 - `evidence_path` (string)
+- `evidence_sha256` (string)
 - `source_file` (string)
 - `browser` (string)
 - `profile` (string)
@@ -109,3 +113,19 @@ Phone schema:
 - `visit_source` (string, nullable)
 - `row_id` (int64, nullable)
 - `table_name` (string, nullable)
+
+## Run summary
+
+`run_summary.parquet` schema:
+
+- `run_id` (string)
+- `tool_version` (string)
+- `config_hash` (string)
+- `evidence_path` (string)
+- `evidence_sha256` (string)
+- `bytes_scanned` (int64)
+- `chunks_processed` (int64)
+- `hits_found` (int64)
+- `files_carved` (int64)
+- `string_spans` (int64)
+- `artefacts_extracted` (int64)

@@ -9,6 +9,17 @@ use thiserror::Error;
 use crate::carve::CarvedFile;
 use crate::strings::artifacts::StringArtefact;
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RunSummary {
+    pub run_id: String,
+    pub bytes_scanned: u64,
+    pub chunks_processed: u64,
+    pub hits_found: u64,
+    pub files_carved: u64,
+    pub string_spans: u64,
+    pub artefacts_extracted: u64,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum MetadataBackendKind {
     Jsonl,
@@ -32,6 +43,7 @@ pub trait MetadataSink: Send + Sync {
     fn record_file(&self, file: &CarvedFile) -> Result<(), MetadataError>;
     fn record_string(&self, artefact: &StringArtefact) -> Result<(), MetadataError>;
     fn record_history(&self, _record: &crate::parsers::browser::BrowserHistoryRecord) -> Result<(), MetadataError>;
+    fn record_run_summary(&self, summary: &RunSummary) -> Result<(), MetadataError>;
     fn flush(&self) -> Result<(), MetadataError>;
 }
 

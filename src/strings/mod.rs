@@ -14,6 +14,14 @@ pub struct StringSpan {
     pub flags: u32,
 }
 
+pub mod flags {
+    pub const UTF16_LE: u32 = 1 << 0;
+    pub const UTF16_BE: u32 = 1 << 1;
+    pub const URL_LIKE: u32 = 1 << 4;
+    pub const EMAIL_LIKE: u32 = 1 << 5;
+    pub const PHONE_LIKE: u32 = 1 << 6;
+}
+
 pub trait StringScanner: Send + Sync {
     fn scan_chunk(&self, chunk: &ScanChunk, data: &[u8]) -> Vec<StringSpan>;
 }
@@ -47,6 +55,7 @@ pub fn build_string_scanner(cfg: &Config, use_gpu: bool) -> Result<Box<dyn Strin
     Ok(Box::new(cpu::CpuStringScanner::new(
         cfg.string_min_len,
         cfg.string_max_len,
+        cfg.string_scan_utf16,
     )))
 }
 
@@ -64,6 +73,7 @@ mod build_tests {
 }
 
 pub mod artifacts {
+    use crate::strings::flags;
     use once_cell::sync::Lazy;
     use regex::Regex;
     use serde::Serialize;
@@ -100,42 +110,54 @@ pub mod artifacts {
         run_id: &str,
         chunk_start: u64,
         local_start: u64,
+        flags: u32,
         data: &[u8],
     ) -> Vec<StringArtefact> {
         let mut out = Vec::new();
-        let text = String::from_utf8_lossy(data);
+        let (text, encoding) = decode_span(flags, data);
+        let hint_mask = flags::URL_LIKE | flags::EMAIL_LIKE | flags::PHONE_LIKE;
+        let use_hints = (flags & hint_mask) != 0;
 
-        for mat in URL_RE.find_iter(&text) {
-            if let Some(value) = normalize_url(mat.as_str()) {
-                out.push(build_artefact(
-                    run_id,
-                    ArtefactKind::Url,
-                    &value,
-                    chunk_start + local_start + mat.start() as u64,
-                ));
+        if !use_hints || (flags & flags::URL_LIKE) != 0 {
+            for mat in URL_RE.find_iter(&text) {
+                if let Some(value) = normalize_url(mat.as_str()) {
+                    out.push(build_artefact(
+                        run_id,
+                        ArtefactKind::Url,
+                        &value,
+                        &encoding,
+                        chunk_start + local_start + mat.start() as u64,
+                    ));
+                }
             }
         }
 
-        for mat in EMAIL_RE.find_iter(&text) {
-            if let Some(value) = normalize_email(mat.as_str()) {
-                out.push(build_artefact(
-                    run_id,
-                    ArtefactKind::Email,
-                    &value,
-                    chunk_start + local_start + mat.start() as u64,
-                ));
+        if !use_hints || (flags & flags::EMAIL_LIKE) != 0 {
+            for mat in EMAIL_RE.find_iter(&text) {
+                if let Some(value) = normalize_email(mat.as_str()) {
+                    out.push(build_artefact(
+                        run_id,
+                        ArtefactKind::Email,
+                        &value,
+                        &encoding,
+                        chunk_start + local_start + mat.start() as u64,
+                    ));
+                }
             }
         }
 
-        for mat in PHONE_RE.find_iter(&text) {
-            let value = mat.as_str();
-            if is_plausible_phone(value) {
-                out.push(build_artefact(
-                    run_id,
-                    ArtefactKind::Phone,
-                    value,
-                    chunk_start + local_start + mat.start() as u64,
-                ));
+        if !use_hints || (flags & flags::PHONE_LIKE) != 0 {
+            for mat in PHONE_RE.find_iter(&text) {
+                let value = mat.as_str();
+                if is_plausible_phone(value) {
+                    out.push(build_artefact(
+                        run_id,
+                        ArtefactKind::Phone,
+                        value,
+                        &encoding,
+                        chunk_start + local_start + mat.start() as u64,
+                    ));
+                }
             }
         }
 
@@ -158,17 +180,46 @@ pub mod artifacts {
         true
     }
 
-    fn build_artefact(run_id: &str, kind: ArtefactKind, content: &str, global_start: u64) -> StringArtefact {
+    fn build_artefact(
+        run_id: &str,
+        kind: ArtefactKind,
+        content: &str,
+        encoding: &str,
+        global_start: u64,
+    ) -> StringArtefact {
         let len = content.as_bytes().len() as u64;
         let global_end = if len == 0 { global_start } else { global_start + len - 1 };
         StringArtefact {
             run_id: run_id.to_string(),
             artefact_kind: kind,
             content: content.to_string(),
-            encoding: "ascii".to_string(),
+            encoding: encoding.to_string(),
             global_start,
             global_end,
         }
+    }
+
+    fn decode_span(flags: u32, data: &[u8]) -> (std::borrow::Cow<'_, str>, &'static str) {
+        if (flags & flags::UTF16_LE) != 0 {
+            let decoded = decode_utf16_bytes(data, true);
+            return (std::borrow::Cow::Owned(decoded), "utf-16le");
+        }
+        if (flags & flags::UTF16_BE) != 0 {
+            let decoded = decode_utf16_bytes(data, false);
+            return (std::borrow::Cow::Owned(decoded), "utf-16be");
+        }
+        (String::from_utf8_lossy(data), "ascii")
+    }
+
+    fn decode_utf16_bytes(data: &[u8], little_endian: bool) -> String {
+        let mut out = Vec::with_capacity(data.len() / 2);
+        let start = if little_endian { 0 } else { 1 };
+        let mut i = start;
+        while i < data.len() {
+            out.push(data[i]);
+            i += 2;
+        }
+        String::from_utf8_lossy(&out).to_string()
     }
 
     fn normalize_url(value: &str) -> Option<String> {
@@ -237,19 +288,40 @@ pub mod artifacts {
     #[cfg(test)]
     mod tests {
         use super::{extract_artefacts, ArtefactKind};
+        use crate::strings::flags;
 
         #[test]
         fn extracts_basic_artefacts() {
             let data = b"visit https://example.com and mail test@example.com";
-            let out = extract_artefacts("run1", 100, 0, data);
+            let out = extract_artefacts("run1", 100, 0, 0, data);
             assert!(out.iter().any(|a| matches!(a.artefact_kind, ArtefactKind::Url)));
             assert!(out.iter().any(|a| matches!(a.artefact_kind, ArtefactKind::Email)));
         }
 
         #[test]
+        fn extracts_utf16le_url() {
+            let text = "https://example.com";
+            let mut data = Vec::new();
+            for b in text.as_bytes() {
+                data.push(*b);
+                data.push(0);
+            }
+            let out = extract_artefacts(
+                "run1",
+                0,
+                0,
+                flags::UTF16_LE | flags::URL_LIKE,
+                &data,
+            );
+            assert!(out.iter().any(|a| {
+                matches!(a.artefact_kind, ArtefactKind::Url) && a.encoding == "utf-16le"
+            }));
+        }
+
+        #[test]
         fn filters_noisy_phone_matches() {
             let data = b"0000000000 bad +1 (415) 555-1234 good";
-            let out = extract_artefacts("run1", 0, 0, data);
+            let out = extract_artefacts("run1", 0, 0, 0, data);
             let phones: Vec<&str> = out
                 .iter()
                 .filter(|a| matches!(a.artefact_kind, ArtefactKind::Phone))
@@ -262,7 +334,7 @@ pub mod artifacts {
         #[test]
         fn trims_url_trailing_punct() {
             let data = b"(https://example.com/login),";
-            let out = extract_artefacts("run1", 0, 0, data);
+            let out = extract_artefacts("run1", 0, 0, 0, data);
             let urls: Vec<&str> = out
                 .iter()
                 .filter(|a| matches!(a.artefact_kind, ArtefactKind::Url))
@@ -274,7 +346,7 @@ pub mod artifacts {
         #[test]
         fn trims_email_trailing_punct() {
             let data = b"user@example.com.";
-            let out = extract_artefacts("run1", 0, 0, data);
+            let out = extract_artefacts("run1", 0, 0, 0, data);
             let emails: Vec<&str> = out
                 .iter()
                 .filter(|a| matches!(a.artefact_kind, ArtefactKind::Email))

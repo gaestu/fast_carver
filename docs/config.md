@@ -7,6 +7,7 @@ The default config is `config/default.yml`.
 - `run_id` (string): optional; if empty, a timestamp-based ID is generated.
 - `overlap_bytes` (u64): overlap between chunks.
 - `enable_string_scan` (bool): enable printable string scanning.
+- `string_scan_utf16` (bool): enable UTF-16LE/BE printable string scanning.
 - `string_min_len` (usize): minimum printable string length.
 - `string_max_len` (usize): maximum string length per span.
 - `gpu_max_hits_per_chunk` (usize): maximum GPU hits per chunk (overflow truncates).
@@ -24,11 +25,13 @@ Each entry in `file_types` contains:
 - `id`: identifier (e.g. `jpeg`, `png`, `gif`)
 - `extensions`: list of output extensions
 - `header_patterns`: signature patterns used by the scanner
-- `footer_patterns`: reserved for future use
+- `footer_patterns`: footer signatures used by the `footer` validator
 - `max_size`: maximum carve size in bytes
 - `min_size`: minimum carve size in bytes
-- `validator`: logical handler name
+- `validator`: handler name (`jpeg`, `png`, `gif`, `sqlite`, `pdf`, `zip`, `webp`, `footer`)
 - `require_eocd`: optional; for ZIP, require an EOCD before carving (prevents large false positives)
+
+The `footer` validator performs a simple header-to-footer carve for formats without a dedicated handler.
 
 ## Example
 
@@ -36,6 +39,7 @@ Each entry in `file_types` contains:
 run_id: ""
 overlap_bytes: 65536
 enable_string_scan: false
+string_scan_utf16: false
 file_types:
   - id: "jpeg"
     extensions: ["jpg", "jpeg"]

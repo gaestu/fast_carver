@@ -5,7 +5,7 @@ use parquet::file::reader::{FileReader, SerializedFileReader};
 
 use fastcarve::carve::CarvedFile;
 use fastcarve::config;
-use fastcarve::metadata::{self, MetadataBackendKind};
+use fastcarve::metadata::{self, MetadataBackendKind, RunSummary};
 use fastcarve::parsers::browser::BrowserHistoryRecord;
 use fastcarve::strings::artifacts::{ArtefactKind, StringArtefact};
 
@@ -69,6 +69,16 @@ fn parquet_writes_expected_files() {
         source_file: PathBuf::from("carved/history.sqlite"),
     };
     sink.record_history(&record).expect("record history");
+    let summary = RunSummary {
+        run_id: "run_001".to_string(),
+        bytes_scanned: 1024,
+        chunks_processed: 1,
+        hits_found: 2,
+        files_carved: 1,
+        string_spans: 3,
+        artefacts_extracted: 4,
+    };
+    sink.record_run_summary(&summary).expect("record summary");
 
     sink.flush().expect("flush");
 
@@ -76,18 +86,39 @@ fn parquet_writes_expected_files() {
     let files_path = parquet_dir.join("files_jpeg.parquet");
     let urls_path = parquet_dir.join("artefacts_urls.parquet");
     let history_path = parquet_dir.join("browser_history.parquet");
+    let summary_path = parquet_dir.join("run_summary.parquet");
 
     assert!(files_path.exists());
     assert!(urls_path.exists());
     assert!(history_path.exists());
+    assert!(summary_path.exists());
 
     assert_eq!(count_rows(&files_path), 1);
     assert_eq!(count_rows(&urls_path), 1);
     assert_eq!(count_rows(&history_path), 1);
+    assert_eq!(count_rows(&summary_path), 1);
+
+    assert_has_column(&files_path, "evidence_sha256");
+    assert_has_column(&urls_path, "evidence_sha256");
+    assert_has_column(&history_path, "evidence_sha256");
+    assert_has_column(&summary_path, "evidence_sha256");
 }
 
 fn count_rows(path: &PathBuf) -> usize {
     let file = File::open(path).expect("open parquet");
     let reader = SerializedFileReader::new(file).expect("parquet reader");
     reader.get_row_iter(None).expect("row iter").count()
+}
+
+fn assert_has_column(path: &PathBuf, column: &str) {
+    let file = File::open(path).expect("open parquet");
+    let reader = SerializedFileReader::new(file).expect("parquet reader");
+    let schema = reader.metadata().file_metadata().schema_descr().root_schema();
+    let columns: Vec<&str> = schema.get_fields().iter().map(|field| field.name()).collect();
+    assert!(
+        columns.contains(&column),
+        "expected column {column} in {} got {:?}",
+        path.display(),
+        columns
+    );
 }

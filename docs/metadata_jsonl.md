@@ -75,3 +75,19 @@ Each line in `metadata/browser_history.jsonl` is a JSON object with:
 - `config_hash`
 - `evidence_path`
 - `evidence_sha256`
+
+## Run summary (`run_summary.jsonl`)
+
+Each line in `metadata/run_summary.jsonl` is a JSON object with:
+
+- `run_id`
+- `bytes_scanned`
+- `chunks_processed`
+- `hits_found`
+- `files_carved`
+- `string_spans`
+- `artefacts_extracted`
+- `tool_version`
+- `config_hash`
+- `evidence_path`
+- `evidence_sha256`

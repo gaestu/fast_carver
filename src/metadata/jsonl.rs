@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use crate::carve::CarvedFile;
-use crate::metadata::{MetadataError, MetadataSink};
+use crate::metadata::{MetadataError, MetadataSink, RunSummary};
 use crate::strings::artifacts::StringArtefact;
 
 pub struct JsonlSink {
@@ -17,6 +17,7 @@ pub struct JsonlSink {
     files_writer: Mutex<BufWriter<File>>,
     strings_writer: Mutex<BufWriter<File>>,
     history_writer: Mutex<BufWriter<File>>,
+    run_writer: Mutex<BufWriter<File>>,
 }
 
 #[derive(Serialize)]
@@ -49,6 +50,16 @@ struct BrowserHistoryRecord<'a> {
     evidence_sha256: &'a str,
 }
 
+#[derive(Serialize)]
+struct RunSummaryRecord<'a> {
+    #[serde(flatten)]
+    summary: &'a RunSummary,
+    tool_version: &'a str,
+    config_hash: &'a str,
+    evidence_path: &'a str,
+    evidence_sha256: &'a str,
+}
+
 impl JsonlSink {
     pub fn new(
         _run_id: &str,
@@ -63,9 +74,11 @@ impl JsonlSink {
         let files_path = meta_dir.join("carved_files.jsonl");
         let strings_path = meta_dir.join("string_artefacts.jsonl");
         let history_path = meta_dir.join("browser_history.jsonl");
+        let run_path = meta_dir.join("run_summary.jsonl");
         let files_file = File::create(files_path)?;
         let strings_file = File::create(strings_path)?;
         let history_file = File::create(history_path)?;
+        let run_file = File::create(run_path)?;
         Ok(Self {
             tool_version: tool_version.to_string(),
             config_hash: config_hash.to_string(),
@@ -74,6 +87,7 @@ impl JsonlSink {
             files_writer: Mutex::new(BufWriter::new(files_file)),
             strings_writer: Mutex::new(BufWriter::new(strings_file)),
             history_writer: Mutex::new(BufWriter::new(history_file)),
+            run_writer: Mutex::new(BufWriter::new(run_file)),
         })
     }
 }
@@ -121,13 +135,29 @@ impl MetadataSink for JsonlSink {
         Ok(())
     }
 
+    fn record_run_summary(&self, summary: &RunSummary) -> Result<(), MetadataError> {
+        let record = RunSummaryRecord {
+            summary,
+            tool_version: &self.tool_version,
+            config_hash: &self.config_hash,
+            evidence_path: &self.evidence_path,
+            evidence_sha256: &self.evidence_sha256,
+        };
+        let mut guard = self.run_writer.lock().unwrap();
+        serde_json::to_writer(&mut *guard, &record)?;
+        guard.write_all(b"\n")?;
+        Ok(())
+    }
+
     fn flush(&self) -> Result<(), MetadataError> {
         let mut files = self.files_writer.lock().unwrap();
         let mut strings = self.strings_writer.lock().unwrap();
         let mut history = self.history_writer.lock().unwrap();
+        let mut run = self.run_writer.lock().unwrap();
         files.flush()?;
         strings.flush()?;
         history.flush()?;
+        run.flush()?;
         Ok(())
     }
 }

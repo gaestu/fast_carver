@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use tracing::info;
+use anyhow::{bail, Result};
+use tracing::{info, warn};
 
 use fastcarve::{
     cli,
@@ -20,15 +20,25 @@ fn main() -> Result<()> {
     let cli_opts = cli::parse();
     let loaded = config::load_config(cli_opts.config_path.as_deref())?;
     let mut cfg = loaded.config;
-    if cli_opts.scan_strings {
+    if cli_opts.scan_strings || cli_opts.scan_utf16 {
         cfg.enable_string_scan = true;
+    }
+    if cli_opts.scan_utf16 {
+        cfg.string_scan_utf16 = true;
     }
     if let Some(min_len) = cli_opts.string_min_len {
         cfg.string_min_len = min_len;
     }
+    let unknown_types =
+        util::filter_file_types(&mut cfg, cli_opts.types.as_deref(), cli_opts.disable_zip);
+    for unknown in unknown_types {
+        warn!("unknown file type in --types: {unknown}");
+    }
     if cli_opts.disable_zip {
-        cfg.file_types.retain(|ft| ft.id != "zip");
         info!("zip carving disabled by CLI");
+    }
+    if cli_opts.types.is_some() && cfg.file_types.is_empty() {
+        warn!("no file types enabled after applying --types filter");
     }
 
     let run_output_dir = cli_opts.output.join(&cfg.run_id);
@@ -36,7 +46,6 @@ fn main() -> Result<()> {
 
     let tool_version = env!("CARGO_PKG_VERSION");
     let evidence_path = cli_opts.input.clone();
-    let evidence_sha256 = "".to_string();
 
     info!(
         "starting run_id={} input={} output={} workers={} chunk_mib={}",
@@ -48,7 +57,22 @@ fn main() -> Result<()> {
     );
 
     let evidence_source = evidence::open_source(&cli_opts)?;
-    let evidence_source = Arc::from(evidence_source);
+    let evidence_source: Arc<dyn evidence::EvidenceSource> = Arc::from(evidence_source);
+
+    if cli_opts.evidence_sha256.is_some() && cli_opts.compute_evidence_sha256 {
+        bail!("set either --evidence-sha256 or --compute-evidence-sha256, not both");
+    }
+
+    let evidence_sha256 = if let Some(hash) = cli_opts.evidence_sha256.as_ref() {
+        hash.trim().to_string()
+    } else if cli_opts.compute_evidence_sha256 {
+        info!("computing evidence sha256 (full pass)");
+        let hash = evidence::compute_sha256(evidence_source.as_ref(), 8 * 1024 * 1024)?;
+        info!("evidence sha256={hash}");
+        hash
+    } else {
+        String::new()
+    };
 
     let meta_backend = util::backend_from_cli(cli_opts.metadata_backend);
     let meta_sink = metadata::build_sink(

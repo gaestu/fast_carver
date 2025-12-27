@@ -1,6 +1,7 @@
 run_id: ""
 overlap_bytes: 65536
 enable_string_scan: false
+string_scan_utf16: false
 string_min_len: 6
 string_max_len: 1024
 gpu_max_hits_per_chunk: 1000000

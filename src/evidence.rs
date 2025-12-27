@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 
 use thiserror::Error;
 
@@ -57,6 +57,90 @@ impl EvidenceSource for RawFileSource {
             Ok(f.read(buf)?)
         }
     }
+}
+
+pub struct DeviceSource {
+    file: File,
+    len: u64,
+    #[cfg(not(unix))]
+    lock: std::sync::Mutex<()>,
+}
+
+impl DeviceSource {
+    pub fn open(path: &std::path::Path) -> Result<Self, EvidenceError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+
+            let metadata = path.metadata()?;
+            if !metadata.file_type().is_block_device() {
+                return Err(EvidenceError::Unsupported(
+                    "path is not a block device".to_string(),
+                ));
+            }
+
+            let file = OpenOptions::new().read(true).open(path)?;
+            let len = device_len(&file, metadata.len())?;
+            return Ok(Self {
+                file,
+                len,
+                #[cfg(not(unix))]
+                lock: std::sync::Mutex::new(()),
+            });
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            Err(EvidenceError::Unsupported(
+                "device input is only supported on unix".to_string(),
+            ))
+        }
+    }
+}
+
+impl EvidenceSource for DeviceSource {
+    fn len(&self) -> u64 {
+        self.len
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, EvidenceError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            Ok(self.file.read_at(buf, offset)?)
+        }
+        #[cfg(not(unix))]
+        {
+            use std::io::{Read, Seek, SeekFrom};
+            let _guard = self.lock.lock().unwrap();
+            let mut f = &self.file;
+            f.seek(SeekFrom::Start(offset))?;
+            Ok(f.read(buf)?)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn device_len(file: &File, fallback_len: u64) -> Result<u64, EvidenceError> {
+    use std::os::unix::io::AsRawFd;
+
+    const BLKGETSIZE64: libc::c_ulong = 0x80081272;
+    let mut size: u64 = 0;
+    let rc = unsafe { libc::ioctl(file.as_raw_fd(), BLKGETSIZE64, &mut size) };
+    if rc != 0 {
+        if fallback_len > 0 {
+            return Ok(fallback_len);
+        }
+        return Err(EvidenceError::Unsupported(
+            "unable to read block device size".to_string(),
+        ));
+    }
+    Ok(size)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn device_len(_file: &File, fallback_len: u64) -> Result<u64, EvidenceError> {
+    Ok(fallback_len)
 }
 
 #[cfg(feature = "ewf")]
@@ -292,6 +376,11 @@ pub fn open_source(opts: &CliOptions) -> Result<Box<dyn EvidenceSource>, Evidenc
         }
     }
 
+    if is_block_device(&opts.input)? {
+        let src = DeviceSource::open(&opts.input)?;
+        return Ok(Box::new(src));
+    }
+
     let src = RawFileSource::open(&opts.input)?;
     Ok(Box::new(src))
 }
@@ -303,15 +392,71 @@ fn is_ewf_path(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_block_device(path: &std::path::Path) -> Result<bool, EvidenceError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+
+        let metadata = std::fs::metadata(path)?;
+        Ok(metadata.file_type().is_block_device())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
+
+pub fn compute_sha256(
+    evidence: &dyn EvidenceSource,
+    chunk_size: usize,
+) -> Result<String, EvidenceError> {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    let total_len = evidence.len();
+    let mut offset = 0u64;
+    let mut buf = vec![0u8; chunk_size.max(1)];
+
+    while offset < total_len {
+        let remaining = total_len - offset;
+        let read_len = remaining.min(buf.len() as u64) as usize;
+        let n = evidence.read_at(offset, &mut buf[..read_len])?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        offset = offset.saturating_add(n as u64);
+    }
+
+    Ok(hex::encode(hasher.finalize()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_ewf_path;
+    use super::{compute_sha256, is_ewf_path, RawFileSource};
 
     #[test]
     fn ewf_extension_detection() {
         assert!(is_ewf_path(std::path::Path::new("case.E01")));
         assert!(is_ewf_path(std::path::Path::new("case.e01")));
         assert!(!is_ewf_path(std::path::Path::new("case.dd")));
+    }
+
+    #[test]
+    fn computes_sha256_for_raw_file() {
+        use std::fs;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("image.bin");
+        fs::write(&path, b"abc").expect("write");
+
+        let src = RawFileSource::open(&path).expect("open");
+        let hash = compute_sha256(&src, 4).expect("hash");
+        assert_eq!(
+            hash,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[cfg(not(feature = "ewf"))]
@@ -334,8 +479,12 @@ mod tests {
             overlap_kib: None,
             metadata_backend: MetadataBackend::Jsonl,
             scan_strings: false,
+            scan_utf16: false,
             string_min_len: None,
+            evidence_sha256: None,
+            compute_evidence_sha256: false,
             disable_zip: false,
+            types: None,
         };
 
         let result = super::open_source(&opts);

@@ -41,6 +41,7 @@ pub struct OpenClStringScanner {
     kernel: Mutex<Kernel>,
     min_len: usize,
     max_len: usize,
+    scan_utf16: bool,
     cpu_fallback: CpuStringScanner,
 }
 
@@ -64,7 +65,12 @@ impl OpenClStringScanner {
             kernel: Mutex::new(kernel),
             min_len: cfg.string_min_len,
             max_len,
-            cpu_fallback: CpuStringScanner::new(cfg.string_min_len, cfg.string_max_len),
+            scan_utf16: cfg.string_scan_utf16,
+            cpu_fallback: CpuStringScanner::new(
+                cfg.string_min_len,
+                cfg.string_max_len,
+                cfg.string_scan_utf16,
+            ),
         })
     }
 }
@@ -155,12 +161,32 @@ impl StringScanner for OpenClStringScanner {
             return self.cpu_fallback.scan_chunk(chunk, data);
         }
 
-        spans_from_mask(chunk, &mask, self.min_len, self.max_len)
+        let mut spans = spans_from_mask(chunk, data, &mask, self.min_len, self.max_len);
+        if self.scan_utf16 {
+            let mut utf16 = crate::strings::cpu::scan_utf16_runs(
+                data,
+                chunk,
+                self.min_len,
+                self.max_len,
+                true,
+            );
+            spans.append(&mut utf16);
+            let mut utf16 = crate::strings::cpu::scan_utf16_runs(
+                data,
+                chunk,
+                self.min_len,
+                self.max_len,
+                false,
+            );
+            spans.append(&mut utf16);
+        }
+        spans
     }
 }
 
 fn spans_from_mask(
     chunk: &ScanChunk,
+    data: &[u8],
     mask: &[u8],
     min_len: usize,
     max_len: usize,
@@ -185,11 +211,13 @@ fn spans_from_mask(
         }
 
         if len >= min_len {
+            let slice = &data[start..start + len];
+            let flags = crate::strings::cpu::span_flags_ascii(slice);
             spans.push(StringSpan {
                 chunk_id: chunk.id,
                 local_start: start as u64,
                 length: len as u32,
-                flags: 0,
+                flags,
             });
         }
 

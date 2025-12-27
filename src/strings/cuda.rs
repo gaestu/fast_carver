@@ -36,6 +36,7 @@ pub struct CudaStringScanner {
     device: Mutex<Arc<CudaDevice>>,
     min_len: usize,
     max_len: usize,
+    scan_utf16: bool,
     cpu_fallback: CpuStringScanner,
 }
 
@@ -61,7 +62,12 @@ impl CudaStringScanner {
             device: Mutex::new(device),
             min_len: cfg.string_min_len,
             max_len,
-            cpu_fallback: CpuStringScanner::new(cfg.string_min_len, cfg.string_max_len),
+            scan_utf16: cfg.string_scan_utf16,
+            cpu_fallback: CpuStringScanner::new(
+                cfg.string_min_len,
+                cfg.string_max_len,
+                cfg.string_scan_utf16,
+            ),
         })
     }
 }
@@ -149,11 +155,36 @@ impl StringScanner for CudaStringScanner {
         };
 
         // Convert mask to spans on CPU
-        mask_to_spans(chunk, &mask, self.min_len, self.max_len)
+        let mut spans = mask_to_spans(chunk, data, &mask, self.min_len, self.max_len);
+        if self.scan_utf16 {
+            let mut utf16 = crate::strings::cpu::scan_utf16_runs(
+                data,
+                chunk,
+                self.min_len,
+                self.max_len,
+                true,
+            );
+            spans.append(&mut utf16);
+            let mut utf16 = crate::strings::cpu::scan_utf16_runs(
+                data,
+                chunk,
+                self.min_len,
+                self.max_len,
+                false,
+            );
+            spans.append(&mut utf16);
+        }
+        spans
     }
 }
 
-fn mask_to_spans(chunk: &ScanChunk, mask: &[u8], min_len: usize, max_len: usize) -> Vec<StringSpan> {
+fn mask_to_spans(
+    chunk: &ScanChunk,
+    data: &[u8],
+    mask: &[u8],
+    min_len: usize,
+    max_len: usize,
+) -> Vec<StringSpan> {
     let mut spans = Vec::new();
     let mut i = 0usize;
 
@@ -174,11 +205,13 @@ fn mask_to_spans(chunk: &ScanChunk, mask: &[u8], min_len: usize, max_len: usize)
         }
 
         if len >= min_len {
+            let slice = &data[start..start + len];
+            let flags = crate::strings::cpu::span_flags_ascii(slice);
             spans.push(StringSpan {
                 chunk_id: chunk.id,
                 local_start: start as u64,
                 length: len as u32,
-                flags: 0,
+                flags,
             });
         }
 

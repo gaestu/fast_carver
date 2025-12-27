@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use crate::carve::CarvedFile;
-use crate::metadata::{MetadataError, MetadataSink};
+use crate::metadata::{MetadataError, MetadataSink, RunSummary};
 use crate::strings::artifacts::{ArtefactKind, StringArtefact};
 
 pub struct CsvSink {
@@ -16,6 +16,7 @@ pub struct CsvSink {
     files_writer: Mutex<csv::Writer<File>>,
     strings_writer: Mutex<csv::Writer<File>>,
     history_writer: Mutex<csv::Writer<File>>,
+    run_writer: Mutex<csv::Writer<File>>,
 }
 
 #[derive(Serialize)]
@@ -69,6 +70,21 @@ struct BrowserHistoryCsv<'a> {
     evidence_sha256: &'a str,
 }
 
+#[derive(Serialize)]
+struct RunSummaryCsv<'a> {
+    run_id: &'a str,
+    bytes_scanned: u64,
+    chunks_processed: u64,
+    hits_found: u64,
+    files_carved: u64,
+    string_spans: u64,
+    artefacts_extracted: u64,
+    tool_version: &'a str,
+    config_hash: &'a str,
+    evidence_path: &'a str,
+    evidence_sha256: &'a str,
+}
+
 impl CsvSink {
     pub fn new(
         _run_id: &str,
@@ -84,10 +100,12 @@ impl CsvSink {
         let files_file = File::create(meta_dir.join("carved_files.csv"))?;
         let strings_file = File::create(meta_dir.join("string_artefacts.csv"))?;
         let history_file = File::create(meta_dir.join("browser_history.csv"))?;
+        let run_file = File::create(meta_dir.join("run_summary.csv"))?;
 
         let mut files_writer = csv::WriterBuilder::new().has_headers(false).from_writer(files_file);
         let mut strings_writer = csv::WriterBuilder::new().has_headers(false).from_writer(strings_file);
         let mut history_writer = csv::WriterBuilder::new().has_headers(false).from_writer(history_file);
+        let mut run_writer = csv::WriterBuilder::new().has_headers(false).from_writer(run_file);
 
         files_writer.write_record(&[
             "run_id",
@@ -137,6 +155,20 @@ impl CsvSink {
             "evidence_sha256",
         ])?;
 
+        run_writer.write_record(&[
+            "run_id",
+            "bytes_scanned",
+            "chunks_processed",
+            "hits_found",
+            "files_carved",
+            "string_spans",
+            "artefacts_extracted",
+            "tool_version",
+            "config_hash",
+            "evidence_path",
+            "evidence_sha256",
+        ])?;
+
         Ok(Self {
             tool_version: tool_version.to_string(),
             config_hash: config_hash.to_string(),
@@ -145,6 +177,7 @@ impl CsvSink {
             files_writer: Mutex::new(files_writer),
             strings_writer: Mutex::new(strings_writer),
             history_writer: Mutex::new(history_writer),
+            run_writer: Mutex::new(run_writer),
         })
     }
 }
@@ -213,13 +246,34 @@ impl MetadataSink for CsvSink {
         Ok(())
     }
 
+    fn record_run_summary(&self, summary: &RunSummary) -> Result<(), MetadataError> {
+        let record = RunSummaryCsv {
+            run_id: &summary.run_id,
+            bytes_scanned: summary.bytes_scanned,
+            chunks_processed: summary.chunks_processed,
+            hits_found: summary.hits_found,
+            files_carved: summary.files_carved,
+            string_spans: summary.string_spans,
+            artefacts_extracted: summary.artefacts_extracted,
+            tool_version: &self.tool_version,
+            config_hash: &self.config_hash,
+            evidence_path: &self.evidence_path,
+            evidence_sha256: &self.evidence_sha256,
+        };
+        let mut guard = self.run_writer.lock().unwrap();
+        guard.serialize(record)?;
+        Ok(())
+    }
+
     fn flush(&self) -> Result<(), MetadataError> {
         let mut files = self.files_writer.lock().unwrap();
         let mut strings = self.strings_writer.lock().unwrap();
         let mut history = self.history_writer.lock().unwrap();
+        let mut run = self.run_writer.lock().unwrap();
         files.flush()?;
         strings.flush()?;
         history.flush()?;
+        run.flush()?;
         Ok(())
     }
 }
@@ -236,6 +290,7 @@ fn artefact_kind_label(kind: &ArtefactKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata::RunSummary;
     use tempfile::tempdir;
 
     #[test]
@@ -289,11 +344,22 @@ mod tests {
             source_file: "sqlite/history.sqlite".into(),
         };
         sink.record_history(&history).expect("record history");
+        let summary = RunSummary {
+            run_id: "run1".to_string(),
+            bytes_scanned: 10,
+            chunks_processed: 1,
+            hits_found: 2,
+            files_carved: 1,
+            string_spans: 3,
+            artefacts_extracted: 4,
+        };
+        sink.record_run_summary(&summary).expect("record summary");
 
         sink.flush().expect("flush");
 
         assert!(dir.path().join("metadata").join("carved_files.csv").exists());
         assert!(dir.path().join("metadata").join("string_artefacts.csv").exists());
         assert!(dir.path().join("metadata").join("browser_history.csv").exists());
+        assert!(dir.path().join("metadata").join("run_summary.csv").exists());
     }
 }

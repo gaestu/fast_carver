@@ -40,6 +40,12 @@ String scanning (URLs/emails/phones):
 cargo run -- --input /path/to/image.dd --output ./output --scan-strings
 ```
 
+String scanning (including UTF-16LE/BE runs):
+
+```bash
+cargo run -- --input /path/to/image.dd --output ./output --scan-strings --scan-utf16
+```
+
 This creates a run directory under `./output/<run_id>/` with:
 
 - `carved/` - carved files per type (jpeg/png/gif/pdf/zip/webp/sqlite). ZIPs are classified into docx/xlsx/pptx when entries match.
@@ -65,9 +71,13 @@ CLI overrides:
 
 - `--overlap-kib`: overrides `overlap_bytes` when set
 - `--scan-strings`: enables string scanning
+- `--scan-utf16`: enables UTF-16LE/BE string scanning
 - `--string-min-len`: overrides `string_min_len` when set
+- `--evidence-sha256`: record a known evidence SHA-256
+- `--compute-evidence-sha256`: compute evidence SHA-256 before scanning (extra full pass)
 - `--metadata-backend csv`: write CSV instead of JSONL
 - `--metadata-backend parquet`: write Parquet instead of JSONL
+- `--types jpeg,png,sqlite`: limit carving to listed file types
 - `--disable-zip`: disable ZIP carving (skips zip/docx/xlsx/pptx)
 
 See `docs/config.md` for the full schema.
@@ -77,6 +87,7 @@ See `docs/config.md` for the full schema.
 Carved files are recorded to `metadata/carved_files.jsonl` with run-level provenance.
 String artefacts (URLs/emails/phones) are recorded to `metadata/string_artefacts.jsonl`.
 Browser history records (from carved SQLite) are recorded to `metadata/browser_history.jsonl`.
+Run summaries are recorded to `metadata/run_summary.jsonl`.
 
 See `docs/metadata_jsonl.md` for the schema.
 CSV output is also available with `--metadata-backend csv` (see `docs/metadata_csv.md`).
@@ -99,6 +110,7 @@ See `docs/architecture.md` for details.
 ## Notes
 
 - E01 support is available when built with `--features ewf` and requires `libewf` installed.
+- Block device inputs are supported on Linux via read-only access (e.g. `/dev/sdX`).
 - GPU signature and string scanning are implemented via OpenCL (`--features gpu-opencl` or `--features gpu` as alias) or CUDA (`--features gpu-cuda`).
 - **OpenCL** builds require an ICD loader with `libOpenCL.so` available; install the dev package (`ocl-icd-devel` on Fedora) or provide a symlink if the linker cannot find `-lOpenCL`.
 - **CUDA** builds require the full NVIDIA CUDA toolkit including NVRTC (runtime compilation). The build system auto-detects your installed CUDA version. Install via your distro's package manager or from [NVIDIA's CUDA downloads](https://developer.nvidia.com/cuda-downloads). On Fedora:
