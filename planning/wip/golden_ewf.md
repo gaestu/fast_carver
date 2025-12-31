@@ -6,6 +6,8 @@ Status: WIP
 
 The test suite currently uses in-memory raw byte arrays for testing. There is no real E01/EWF file tested, which means the EWF integration code path (using libewf) is only verified to compile, not to actually work.
 
+We also need a repeatable, data-driven way to build test images from **everything** under `tests/golden_image/samples/`. Adding new sample files must not require code changes.
+
 A "golden" EWF test image would provide:
 - Real E01 file parsing verification
 - Integration test for the full EWF code path
@@ -17,26 +19,29 @@ A "golden" EWF test image would provide:
 ## Scope
 
 ### In Scope
-- Generating a golden test image from **ALL** files in `tests/golden_image/sample/`
-- ~84 files across all categories (~23MB raw, compresses well to E01)
+- Generating a golden test image from **ALL** files in `tests/golden_image/samples/` (recursive)
+- Currently ~84 files across all categories (~23MB raw, compresses well to E01)
 - JSON manifest documenting exact offsets and checksums for every file
 - Both raw and E01 output formats
 - Integration tests that verify carving against manifest
 - Useful for ongoing development and adding new file type support
+- No hard-coded file lists in tests or generator (new samples are auto-included)
+- Optional `.goldenignore` to exclude non-sample helper files without code changes
 
 ### Out of Scope
 - Split E01 files (E01/E02/E03)
 - Encrypted EWF images
 - Filtering/selecting specific files (include everything)
+- Updating test code when new sample files or categories are added
 
 ---
 
 ## Design
 
-### Existing Sample Structure (~84 files, ~23MB)
+### Current Sample Structure (~84 files, ~23MB)
 
 ```
-tests/golden_image/sample/
+tests/golden_image/samples/
 ├── images/           # 18 files - JPEG, PNG, GIF, BMP, WebP, TIFF, ICO, SVG
 ├── video/            # 7 files  - MP4, AVI, MOV, OGG, WMV, WEBM
 ├── audio/            # 4 files  - MP3, WAV, OGG
@@ -51,10 +56,13 @@ tests/golden_image/sample/
 └── samples_to_place.md
 ```
 
+Note: `samples/` is the intended source-of-truth directory. For backward compatibility, the generator should fall back to `sample/` if `samples/` does not exist.
+
 ### Files to Generate
 
 ```
 tests/golden_image/
+├── .goldenignore               # Optional ignore list for non-samples
 ├── generate.sh                  # Script to pack ALL samples
 ├── manifest.json                # Complete offset/hash map for all files
 ├── golden.raw                   # Raw disk image (~25MB with alignment)
@@ -73,7 +81,7 @@ All files concatenated with 4KB alignment:
 ├─────────────────────────────────────────┤
 │ Offset 0xNNNN: images/test_gradient.png │
 ├─────────────────────────────────────────┤
-│ ... (all 84 files at 4KB boundaries)    │
+│ ... (all files at 4KB boundaries)       │
 ├─────────────────────────────────────────┤
 │ Offset 0xNNNN: other/strings.txt        │
 ├─────────────────────────────────────────┤
@@ -83,14 +91,14 @@ All files concatenated with 4KB alignment:
 
 ### Manifest Format
 
-Complete manifest with all files grouped by category:
+Example manifest with all files grouped by category (values are illustrative). Tests should treat this manifest as the single source of truth so new samples do not require code changes:
 
 ```json
 {
   "description": "Golden test image - ALL sample files",
   "generated": "2025-12-31T12:00:00Z",
   "alignment": 4096,
-  "sample_dir": "sample",
+  "sample_dir": "samples",
   "categories": {
     "images": [...],
     "video": [...],
@@ -134,11 +142,13 @@ Complete manifest with all files grouped by category:
 
 ### generate.sh Script
 
+Optional `.goldenignore` (gitignore-style patterns) can exclude helper files like `samples_to_place.md` and `generate_missing.sh` while keeping sample discovery data-driven.
+
 ```bash
 #!/bin/bash
 # Generate golden.raw and golden.E01 from ALL sample files
 #
-# Includes every file in sample/ subdirectories for comprehensive testing.
+# Includes every file in samples/ subdirectories for comprehensive testing.
 # Useful for development and regression testing of all supported formats.
 #
 # Usage: ./generate.sh [--no-e01]
@@ -149,7 +159,13 @@ Complete manifest with all files grouped by category:
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SAMPLE_DIR="$SCRIPT_DIR/sample"
+SAMPLES_DIR_DEFAULT="$SCRIPT_DIR/samples"
+SAMPLES_DIR_FALLBACK="$SCRIPT_DIR/sample"
+SAMPLES_DIR="${SAMPLES_DIR:-$SAMPLES_DIR_DEFAULT}"
+if [[ ! -d "$SAMPLES_DIR" && -d "$SAMPLES_DIR_FALLBACK" ]]; then
+    SAMPLES_DIR="$SAMPLES_DIR_FALLBACK"
+fi
+IGNORE_FILE="$SCRIPT_DIR/.goldenignore"
 OUTPUT_RAW="$SCRIPT_DIR/golden.raw"
 OUTPUT_E01="$SCRIPT_DIR/golden"
 MANIFEST="$SCRIPT_DIR/manifest.json"
@@ -161,22 +177,26 @@ SKIP_E01=false
 ALIGNMENT=4096
 
 echo "=== Golden Image Generator (All Files) ==="
-echo "Sample dir: $SAMPLE_DIR"
+echo "Samples dir: $SAMPLES_DIR"
 echo ""
 
 #------------------------------------------------------------------------------
-# Collect all sample files (exclude .md and .sh)
+# Collect all sample files (optional .goldenignore, no hard-coded filters)
 #------------------------------------------------------------------------------
-mapfile -t ALL_FILES < <(find "$SAMPLE_DIR" -type f \
-    ! -name "*.md" ! -name "*.sh" \
-    -printf "%P\n" | sort)
+if command -v rg &> /dev/null && [[ -f "$IGNORE_FILE" ]]; then
+    mapfile -t ALL_FILES < <(rg --files --ignore-file "$IGNORE_FILE" "$SAMPLES_DIR" \
+        | sed "s|^$SAMPLES_DIR/||" | sort)
+else
+    mapfile -t ALL_FILES < <(find "$SAMPLES_DIR" -type f -print \
+        | sed "s|^$SAMPLES_DIR/||" | sort)
+fi
 
 TOTAL_FILES=${#ALL_FILES[@]}
 echo "Found $TOTAL_FILES files to include"
 echo ""
 
 if [[ $TOTAL_FILES -eq 0 ]]; then
-    echo "ERROR: No sample files found in $SAMPLE_DIR"
+    echo "ERROR: No sample files found in $SAMPLES_DIR"
     exit 1
 fi
 
@@ -213,7 +233,7 @@ cat > "$MANIFEST" << EOF
   "description": "Golden test image - ALL sample files for fastcarve testing",
   "generated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "alignment": $ALIGNMENT,
-  "sample_dir": "sample",
+  "sample_dir": "samples",
   "files": [
 EOF
 
@@ -224,7 +244,7 @@ TOTAL_SIZE=0
 
 FIRST=true
 for rel_path in "${ALL_FILES[@]}"; do
-    full_path="$SAMPLE_DIR/$rel_path"
+    full_path="$SAMPLES_DIR/$rel_path"
     
     FILE_SIZE=$(stat -c%s "$full_path" 2>/dev/null || stat -f%z "$full_path")
     FILE_SHA256=$(sha256sum "$full_path" | cut -d' ' -f1)
@@ -364,7 +384,7 @@ echo "  cargo test golden --features ewf     # Include E01 tests"
 
 ### Integration Tests
 
-Create `tests/golden_image_test.rs`:
+Create `tests/golden_image_test.rs`. Tests should be manifest-driven (no hard-coded file lists or categories) so new samples are picked up automatically:
 
 ```rust
 //! Integration tests using the golden test image.
@@ -372,7 +392,7 @@ Create `tests/golden_image_test.rs`:
 //! Tests use ALL sample files packed into raw and E01 images.
 //! Provides comprehensive testing for development and regression detection.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -506,24 +526,29 @@ fn golden_carves_from_raw() {
     assert!(stats.hits_found > 0, "expected some hits");
     assert!(stats.files_carved > 0, "expected carved files");
 
-    // Check which file types were carved
-    let carved_root = run_output_dir.join("carved");
-    let expected_types = ["jpeg", "png", "gif", "sqlite", "pdf", "docx", "xlsx", "pptx", 
-                         "webp", "bmp", "tiff", "mp4", "rar", "7z", "zip", "odt", "ods", "odp"];
-    
-    let mut found_types = Vec::new();
-    for t in expected_types {
-        let type_dir = carved_root.join(t);
-        if type_dir.exists() {
-            let count = fs::read_dir(&type_dir).map(|d| d.count()).unwrap_or(0);
-            if count > 0 {
-                found_types.push((t, count));
+    // Validate carved outputs against manifest hashes (no hard-coded type list).
+    let manifest_hashes: HashSet<String> = manifest["files"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|f| f["sha256"].as_str())
+        .map(|s| s.to_string())
+        .collect();
+
+    let carved_meta = run_output_dir.join("metadata").join("carved_files.jsonl");
+    let carved_content = fs::read_to_string(&carved_meta).expect("read carved metadata");
+    let mut matched = 0usize;
+    for line in carved_content.lines() {
+        let record: serde_json::Value = serde_json::from_str(line).expect("parse carved record");
+        if let Some(hash) = record["sha256"].as_str() {
+            if manifest_hashes.contains(hash) {
+                matched += 1;
             }
         }
     }
-    
-    println!("Carved file types: {:?}", found_types);
-    assert!(found_types.len() >= 6, "expected at least 6 types carved, got {}", found_types.len());
+
+    println!("Carved outputs matching manifest: {}", matched);
+    assert!(matched > 0, "expected carved outputs to match manifest samples");
 }
 
 /// Test carving from E01 with string scanning
@@ -686,20 +711,17 @@ fn golden_category_coverage() {
         }
     };
 
-    let categories = &manifest["summary"]["categories"];
-    
-    // Expected categories based on sample directory structure
-    let expected = ["images", "video", "audio", "documents", "archives", 
-                    "databases", "media_tiny", "other"];
-    
+    let categories = manifest["summary"]["categories"]
+        .as_object()
+        .expect("categories object");
+
     println!("Category coverage:");
-    for cat in expected {
-        let info = &categories[cat];
+    for (cat, info) in categories {
         let files = info["files"].as_u64().unwrap_or(0);
         let bytes = info["bytes"].as_u64().unwrap_or(0);
         println!("  {}: {} files, {} bytes", cat, files, bytes);
-        
-        // Each category should have at least one file
+
+        // Each category present in the manifest should have at least one file.
         assert!(files > 0, "category '{}' should have files", cat);
     }
 }
@@ -725,11 +747,12 @@ Add to Testing section:
 ```markdown
 ### Golden Image Tests
 
-Comprehensive integration tests using a golden image with ALL sample files (~84 files, ~23MB).
+Comprehensive integration tests using a golden image with ALL sample files (currently ~84 files, ~23MB).
 
 ```
 tests/golden_image/
-├── sample/           # Source files organized by type
+├── .goldenignore     # Optional ignore list for non-samples
+├── samples/          # Source files organized by type
 │   ├── images/       # JPEG, PNG, GIF, BMP, WebP, TIFF, etc.
 │   ├── documents/    # PDF, DOCX, XLSX, PPTX, ODT, etc.
 │   ├── archives/     # ZIP, RAR, 7z, TAR variants
@@ -764,7 +787,7 @@ cargo test golden --features ewf     # Include E01 tests
 
 - [ ] `generate.sh` created and executable
 - [ ] Running `./generate.sh` completes without errors
-- [ ] `manifest.json` contains all 84 files with offsets/hashes
+- [ ] `manifest.json` contains all files with offsets/hashes
 - [ ] `golden.raw` created (~25MB with alignment)
 - [ ] `golden.E01` created (~8-12MB compressed)
 - [ ] `ewfverify golden.E01` passes
@@ -772,6 +795,7 @@ cargo test golden --features ewf     # Include E01 tests
 - [ ] `cargo test golden --features ewf` passes
 - [ ] Manifest integrity test validates all file hashes
 - [ ] String scanning finds URLs/emails from test data
+- [ ] Adding a new file under `tests/golden_image/samples/` updates the image and manifest without code changes
 
 ---
 
@@ -780,12 +804,22 @@ cargo test golden --features ewf     # Include E01 tests
 This feature is complete when:
 
 - [ ] `generate.sh` works on Linux (bash 4+)
-- [ ] All ~84 sample files included in image
+- [ ] All sample files included in image
 - [ ] `manifest.json` auto-generated with full metadata
 - [ ] `golden.raw` and `golden.E01` successfully created
 - [ ] `tests/golden_image_test.rs` implemented with 5+ test functions
 - [ ] Tests verify carving, string extraction, and manifest integrity
 - [ ] README updated with instructions
 - [ ] `.gitignore` excludes `golden.raw`
+- [ ] Tests and generator are manifest-driven (no hard-coded sample lists)
 - [ ] Planning doc moved to `planning/done/`
 
+---
+
+## Feature Plan
+
+1. Standardize the input directory on `tests/golden_image/samples/` and keep a fallback to `sample/` to avoid churn.
+2. Implement `tests/golden_image/generate.sh` to recursively discover files (optionally honoring `.goldenignore`), then build `golden.raw`, `golden.E01`, and `manifest.json` deterministically.
+3. Make tests manifest-driven: validate offsets/hashes, validate carved outputs via metadata, and avoid hard-coded file/category lists.
+4. Document usage and artifact policy (`README`, `.gitignore`), including how to regenerate images.
+5. Validate the workflow by adding a new sample file and regenerating the images/tests without code changes.
