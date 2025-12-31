@@ -86,7 +86,7 @@ This document tracks sample files for the golden test image.
 |--------|--------|------|------|-------|
 | zip | ✅ Have | zip_2MB.zip | 2 MB | Large! |
 | rar | ✅ Have | test.rar | small | RAR4? add RAR5 sample |
-| rar (v5) | ❌ Missing | jpegs.rar5 | ? | From bulk_extractor tests/Data |
+| rar (v5) | ❌ Missing | test.rar5 | small | Generate with `rar a -ma5 test.rar5 *.jpg` |
 | 7z | ✅ Have | test.7z | small | |
 | tar | ✅ Have | test.tar | small | |
 | tar.gz | ✅ Have | test.tar.gz | small | |
@@ -157,7 +157,7 @@ This document tracks sample files for the golden test image.
 | Format | Status | File | Size | Notes |
 |--------|--------|------|------|-------|
 | strings.txt | ✅ Have | other/strings.txt | small | URLs/emails/phones |
-| utf16 text | ❌ Missing | utf16-examples.txt | ? | From bulk_extractor tests/Data |
+| utf16 text | ❌ Missing | utf16_test.txt | small | Generate: `echo "Test string" \| iconv -t UTF-16LE > utf16_test.txt` |
 
 ---
 
@@ -195,11 +195,344 @@ This document tracks sample files for the golden test image.
 
 ### Files to Add (High Priority)
 
-- `jpegs.rar5` (RAR5 coverage for the rar handler; bulk_extractor `tests/Data`)
-- `utf16-examples.txt` (UTF-16 string scan coverage; bulk_extractor `tests/Data`)
+- `test.rar5` - RAR5 format coverage (generate with `rar a -ma5`)
+- `utf16_test.txt` - UTF-16 string scan coverage (generate with `iconv`)
+- `test_exif.jpg` - JPEG with EXIF/GPS metadata (generate with ImageMagick)
+- `test_encrypted.rar` - Encrypted RAR for graceful skip testing
+- `nested.zip` - ZIP containing other files for nested carving
+
+---
+
+## Files to Generate (Self-Created Test Data)
+
+All test files should be generated ourselves to avoid licensing concerns. Below are generation commands.
+
+### Archive Files
+
+```bash
+# RAR5 archive (requires rar/unrar package)
+rar a -ma5 test.rar5 some_files/
+
+# RAR4 archive  
+rar a -ma4 test.rar4 some_files/
+
+# Encrypted RAR (for skip testing)
+rar a -hp"password123" test_encrypted.rar some_files/
+
+# ZIP with nested content
+zip -r nested.zip folder_with_images/
+
+# Encrypted ZIP
+zip -e -P "password123" test_encrypted.zip some_files/
+```
+
+### Images with EXIF/GPS Metadata
+
+```bash
+# JPEG with EXIF GPS data
+convert -size 640x480 plasma:fractal \
+  -set EXIF:GPSLatitude "37/1,46/1,26/1" \
+  -set EXIF:GPSLatitudeRef "N" \
+  -set EXIF:GPSLongitude "122/1,25/1,9/1" \
+  -set EXIF:GPSLongitudeRef "W" \
+  -set EXIF:Make "TestCamera" \
+  -set EXIF:Model "TestModel" \
+  -set EXIF:DateTimeOriginal "2025:01:01 12:00:00" \
+  test_exif.jpg
+
+# TIFF with metadata
+convert -size 320x240 gradient:blue-red \
+  -set EXIF:Make "TestCamera" \
+  test_meta.tiff
+
+# PNG (no EXIF but can have text chunks)
+convert -size 200x200 xc:green -set png:Title "Test PNG" test_meta.png
+```
+
+### Text Files with Various Encodings
+
+```bash
+# UTF-16 LE text
+echo "Test UTF-16 string with special chars: äöü 你好 🎉" | iconv -t UTF-16LE > utf16_le.txt
+
+# UTF-16 BE text  
+echo "Test UTF-16 BE string" | iconv -t UTF-16BE > utf16_be.txt
+
+# UTF-8 multilingual text
+cat > utf8_multilingual.txt << 'EOF'
+English: Hello World
+German: Größe, Äpfel, Übung
+Russian: Привет мир
+Chinese: 你好世界
+Japanese: こんにちは
+Arabic: مرحبا بالعالم
+Emoji: 🎉🔥💻🚀
+EOF
+
+# Text with forensic patterns (emails, URLs, IPs)
+cat > forensic_strings.txt << 'EOF'
+Email addresses:
+user@example.com
+admin@test-domain.org
+john.doe+tag@company.co.uk
+
+URLs:
+https://www.example.com/path?query=value
+http://192.168.1.1:8080/admin
+ftp://files.example.org/download.zip
+
+IP addresses:
+192.168.1.1
+10.0.0.1
+2001:0db8:85a3:0000:0000:8a2e:0370:7334
+
+Phone numbers:
++1-555-123-4567
+(202) 555-0123
++44 20 7946 0958
+
+Credit card test numbers (Luhn-valid test numbers):
+4111111111111111
+5500000000000004
+340000000000009
+
+Bitcoin addresses (example format):
+1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2
+3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+EOF
+```
+
+### PDF Files
+
+```bash
+# Simple PDF with text (using enscript + ps2pdf)
+echo "This is a test PDF document for carving tests." | enscript -B -o - | ps2pdf - test_simple.pdf
+
+# Or using pdflatex
+cat > test_doc.tex << 'EOF'
+\documentclass{article}
+\begin{document}
+Test PDF document for fastcarve testing.
+\end{document}
+EOF
+pdflatex test_doc.tex
+
+# PDF with streams (more complex)
+# Use LibreOffice to convert a doc to PDF with images
+```
+
+### SQLite Databases
+
+```bash
+# Basic SQLite database
+sqlite3 test_basic.sqlite << 'EOF'
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT);
+INSERT INTO users VALUES (1, 'Alice', 'alice@example.com');
+INSERT INTO users VALUES (2, 'Bob', 'bob@test.org');
+CREATE TABLE logs (id INTEGER PRIMARY KEY, timestamp TEXT, action TEXT);
+INSERT INTO logs VALUES (1, '2025-01-01 12:00:00', 'login');
+INSERT INTO logs VALUES (2, '2025-01-01 12:05:00', 'logout');
+EOF
+
+# Browser-style history database
+sqlite3 test_history.sqlite << 'EOF'
+CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, last_visit_time INTEGER);
+INSERT INTO urls VALUES (1, 'https://www.google.com', 'Google', 100, 13350000000000000);
+INSERT INTO urls VALUES (2, 'https://github.com', 'GitHub', 50, 13350000000000001);
+CREATE TABLE visits (id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER);
+INSERT INTO visits VALUES (1, 1, 13350000000000000);
+INSERT INTO visits VALUES (2, 2, 13350000000000001);
+EOF
+```
+
+### Office Documents (ZIP-based)
+
+```bash
+# DOCX - use LibreOffice command line
+echo "Test document content" > /tmp/test.txt
+libreoffice --headless --convert-to docx /tmp/test.txt --outdir .
+
+# Or create minimal DOCX manually (it's just a ZIP)
+mkdir -p docx_tmp/word
+cat > docx_tmp/word/document.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>Test DOCX document</w:t></w:r></w:p></w:body>
+</w:document>
+EOF
+cat > docx_tmp/[Content_Types].xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+EOF
+cd docx_tmp && zip -r ../test_generated.docx . && cd ..
+rm -rf docx_tmp
+```
+
+### ELF Binaries (Linux)
+
+```bash
+# Minimal hello world
+cat > hello.c << 'EOF'
+int main() { return 0; }
+EOF
+gcc -o test_elf hello.c
+rm hello.c
+
+# Shared library
+cat > libtest.c << 'EOF'
+int test_func() { return 42; }
+EOF
+gcc -shared -fPIC -o libtest.so libtest.c
+rm libtest.c
+```
+
+### Email Files
+
+```bash
+# Simple EML file
+cat > test_email.eml << 'EOF'
+From: sender@example.com
+To: recipient@test.org
+Subject: Test Email for Carving
+Date: Wed, 01 Jan 2025 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+This is a test email message for forensic carving tests.
+It contains some sample text content.
+
+Best regards,
+Test Sender
+EOF
+
+# EML with base64 attachment
+cat > test_email_attachment.eml << 'EOF'
+From: sender@example.com
+To: recipient@test.org
+Subject: Test Email with Attachment
+Date: Wed, 01 Jan 2025 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_Part_0"
+
+------=_Part_0
+Content-Type: text/plain; charset="UTF-8"
+
+This email has an attachment.
+
+------=_Part_0
+Content-Type: application/octet-stream; name="test.txt"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="test.txt"
+
+VGhpcyBpcyBhIHRlc3QgYXR0YWNobWVudC4=
+
+------=_Part_0--
+EOF
+```
+
+### JSON Files
+
+```bash
+# Plain JSON
+cat > test_data.json << 'EOF'
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "age": 30,
+  "address": {
+    "street": "123 Test Street",
+    "city": "Test City",
+    "country": "Testland"
+  },
+  "tags": ["forensics", "testing", "carving"]
+}
+EOF
+
+# JSON log format (NDJSON)
+cat > test_logs.jsonl << 'EOF'
+{"timestamp": "2025-01-01T12:00:00Z", "level": "INFO", "message": "Application started"}
+{"timestamp": "2025-01-01T12:00:01Z", "level": "DEBUG", "message": "Loading configuration"}
+{"timestamp": "2025-01-01T12:00:02Z", "level": "WARN", "message": "Config file not found, using defaults"}
+EOF
+```
+
+### Windows Artefacts (Future - requires Windows or specific tools)
+
+```bash
+# Windows shortcut (.lnk) - can be created with pylnk or on Windows
+# For now, skip or find open-source samples
+
+# Prefetch files - require Windows system access
+# EVTX, MFT, USN - require Windows or forensic image extraction
+```
+
+---
+
+## Generation Script
+
+Save this as `generate_test_files.sh` and run to create all test files:
+
+```bash
+#!/bin/bash
+set -e
+
+OUTPUT_DIR="./generated_samples"
+mkdir -p "$OUTPUT_DIR"
+cd "$OUTPUT_DIR"
+
+echo "Generating test files..."
+
+# UTF-8 multilingual text
+cat > utf8_multilingual.txt << 'HEREDOC'
+English: Hello World
+German: Größe, Äpfel, Übung  
+Russian: Привет мир
+Chinese: 你好世界
+Japanese: こんにちは
+Emoji: 🎉🔥💻
+HEREDOC
+
+# UTF-16 LE
+echo "UTF-16 test string äöü" | iconv -t UTF-16LE > utf16_le.txt
+
+# Forensic patterns
+cat > forensic_strings.txt << 'HEREDOC'
+user@example.com
+https://www.example.com
+192.168.1.1
++1-555-123-4567
+4111111111111111
+HEREDOC
+
+# SQLite database
+sqlite3 test.sqlite << 'SQL'
+CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT);
+INSERT INTO test VALUES (1, 'test data');
+SQL
+
+# Simple images (requires ImageMagick)
+if command -v convert &> /dev/null; then
+    convert -size 100x100 xc:red test_red.jpg
+    convert -size 100x100 xc:blue test_blue.png
+    convert -size 100x100 xc:green test_green.gif
+    convert -size 100x100 xc:yellow test_yellow.bmp
+fi
+
+# JSON
+echo '{"test": "data", "number": 42}' > test.json
+
+echo "Done! Files created in $OUTPUT_DIR"
+```
+
+---
 
 ## Licensing
 
-All files from file-examples.com are free for testing purposes.
-Files from filesamples.com are sample files for testing.
-Generated files (ImageMagick, ffmpeg, sqlite3) are CC0/public domain.
+All files should be self-generated to avoid licensing concerns:
+- Files from file-examples.com are free for testing purposes.
+- Generated files (ImageMagick, ffmpeg, sqlite3, gcc) are your own work.
+- Text files with synthetic test data (fake emails, test credit card numbers) are fine.
+- Do NOT copy real photos, documents, or artefacts from unknown sources.
