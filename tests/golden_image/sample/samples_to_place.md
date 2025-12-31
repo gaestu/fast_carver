@@ -161,38 +161,6 @@ This document tracks sample files for the golden test image.
 
 ---
 
-## Deprioritized / Not Needed For fastcarve Core
-
-- Audio formats (mp3/wav/ogg/aac/flac/m4a) are not carved by fastcarve.
-- Video formats except mp4 are not carved by fastcarve.
-- OLE/OpenDocument formats (doc/xls/ppt/odt/ods/odp/rtf) are not carved; docx/xlsx/pptx come from ZIP.
-- tar/gz/bz2/xz/iso containers are not carved (keep only if you want extra variety).
-- Executables, email containers, and PSD/VCF/PCAP-style artefacts are not parsed by fastcarve.
-
----
-
-## Summary
-
-### Currently Supported by fastcarve (12 types + ZIP-classified office types)
-
-| Type | Have Sample? | Action Needed |
-|------|--------------|---------------|
-| jpeg | ✅ Yes | Use 100KB version |
-| png | ✅ Yes | Use 500KB version |
-| gif | ✅ Yes | OK |
-| bmp | ✅ Yes | OK (test.bmp) |
-| webp | ✅ Yes | OK |
-| tiff | ✅ Yes | OK (but 1MB is large) |
-| pdf | ✅ Yes | OK |
-| docx | ✅ Yes | OK |
-| xlsx | ✅ Yes | OK |
-| pptx | ✅ Yes | OK (test.pptx) |
-| zip | ✅ Yes | OK (but 2MB is large) |
-| rar | ✅ Yes | OK (test.rar) |
-| 7z | ✅ Yes | OK (test.7z) |
-| mp4 | ✅ Yes | OK (but 3MB is large) |
-| sqlite | ✅ Yes | OK (test.sqlite) |
-
 ### Files to Add (High Priority)
 
 - `test.rar5` - RAR5 format coverage (generate with `rar a -ma5`)
@@ -527,12 +495,3 @@ echo '{"test": "data", "number": 42}' > test.json
 echo "Done! Files created in $OUTPUT_DIR"
 ```
 
----
-
-## Licensing
-
-All files should be self-generated to avoid licensing concerns:
-- Files from file-examples.com are free for testing purposes.
-- Generated files (ImageMagick, ffmpeg, sqlite3, gcc) are your own work.
-- Text files with synthetic test data (fake emails, test credit card numbers) are fine.
-- Do NOT copy real photos, documents, or artefacts from unknown sources.
