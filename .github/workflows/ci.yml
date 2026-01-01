@@ -24,6 +24,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -55,6 +57,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Check formatting
@@ -76,6 +79,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Build release binary
         run: cargo build --release --verbose
@@ -100,6 +105,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Build with OpenCL feature
         run: cargo build --features gpu-opencl --verbose
@@ -117,6 +124,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Build documentation
         run: cargo doc --no-deps --document-private-items
@@ -136,6 +145,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
