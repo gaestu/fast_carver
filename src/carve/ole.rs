@@ -10,6 +10,7 @@ use std::fs::File;
 use crate::carve::{
     output_path, CarveError, CarveHandler, CarveStream, CarvedFile, ExtractionContext,
 };
+use crate::evidence::EvidenceSource;
 use crate::scanner::NormalizedHit;
 
 /// OLE/CFB magic signature
@@ -107,10 +108,9 @@ fn parse_ole_header(header: &[u8]) -> Result<(u64, u64), CarveError> {
     };
 
     // For v3, we need to calculate total sectors from FAT
-    // For v4, bytes 40-43 contain the number of FAT sectors
-    // But a simpler approach: use the DIFAT to find the highest used sector
+    // The key insight: the file size = header + (highest_sector_id + 1) * sector_size
 
-    // Read number of FAT sectors
+    // Read number of FAT sectors (this tells us how many sectors contain FAT entries)
     let num_fat_sectors = u32::from_le_bytes([header[44], header[45], header[46], header[47]]);
 
     // Read first directory sector
@@ -119,21 +119,8 @@ fn parse_ole_header(header: &[u8]) -> Result<(u64, u64), CarveError> {
     // Read number of DIFAT sectors (extended FAT)
     let num_difat_sectors = u32::from_le_bytes([header[68], header[69], header[70], header[71]]);
 
-    // Estimate size: We'll use a conservative approach.
-    // The file contains at least:
-    // - 1 header sector
-    // - FAT sectors
-    // - DIFAT sectors
-    // - Directory sectors
-    // - Data sectors
-    //
-    // For a basic estimate, we use: (first_dir_sector + some_buffer) * sector_size
-    // Better: scan DIFAT entries to find highest sector reference
-
-    // Count DIFAT entries in header (109 entries at offset 76)
-    let mut max_sector: u32 = 0;
-
-    // Check FAT sector locations from DIFAT
+    // Find the highest FAT sector location from the DIFAT array in header
+    let mut max_fat_sector: u32 = 0;
     for i in 0..109 {
         let offset = 76 + i * 4;
         if offset + 4 > header.len() {
@@ -145,39 +132,64 @@ fn parse_ole_header(header: &[u8]) -> Result<(u64, u64), CarveError> {
             header[offset + 2],
             header[offset + 3],
         ]);
-        // Valid sector IDs are < 0xFFFFFFFA (special values are >= that)
-        if sector_id < 0xFFFFFFFA && sector_id > max_sector {
-            max_sector = sector_id;
+        // Valid sector IDs are < 0xFFFFFFFA (special values like ENDOFCHAIN are >= that)
+        if sector_id < 0xFFFFFFFA && sector_id > max_fat_sector {
+            max_fat_sector = sector_id;
         }
     }
 
-    // Also check first directory sector
-    if first_dir_sector < 0xFFFFFFFA && first_dir_sector > max_sector {
-        max_sector = first_dir_sector;
+    // The file must contain at least:
+    // - Header (1 sector)
+    // - FAT sectors (num_fat_sectors)
+    // - DIFAT sectors (num_difat_sectors)
+    // - Directory (at least 1 sector, starting at first_dir_sector)
+    // - Data sectors
+    //
+    // A simple and often accurate approach: the highest sector used is typically
+    // around the directory sector location + data. The number of FAT sectors
+    // tells us how many sectors the file can index.
+    //
+    // Each FAT sector can index (sector_size / 4) sectors.
+    // So max possible sectors = num_fat_sectors * (sector_size / 4)
+
+    let entries_per_fat_sector = sector_size / 4;
+    let max_indexed_sectors = num_fat_sectors as u64 * entries_per_fat_sector;
+
+    // The actual file size is header + all used sectors
+    // We use the FAT capacity as upper bound, but also check first_dir_sector
+    // as a more realistic estimate
+    let mut estimated_sectors = if first_dir_sector < 0xFFFFFFFA {
+        // Use directory sector as base and add buffer for data
+        // Most small files have data after the directory
+        (first_dir_sector as u64 + 1).max(max_indexed_sectors.min(500))
+    } else {
+        // No directory found, use FAT capacity (capped)
+        max_indexed_sectors.min(1000)
+    };
+
+    // Ensure we include all FAT sectors
+    if max_fat_sector > 0 {
+        estimated_sectors = estimated_sectors.max(max_fat_sector as u64 + 1);
     }
 
-    // If we found FAT sectors, the file extends beyond them
-    // A rough estimate: max_sector * 2 to account for data after FAT
-    // Minimum reasonable size
-    let estimated_sectors = if max_sector > 0 {
-        (max_sector as u64 + 1) * 2
-    } else {
-        // Fallback: use fat_sectors count
-        (num_fat_sectors as u64 + num_difat_sectors as u64 + 10).max(10)
-    };
+    // Add DIFAT sectors
+    estimated_sectors += num_difat_sectors as u64;
 
     let estimated_size = header_size + (estimated_sectors * sector_size);
 
     Ok((estimated_size, sector_size))
 }
 
-/// Try to get a more accurate size by reading the FAT
+/// Try to get a more accurate size by reading FAT entries and finding the highest used sector
 fn refine_ole_size(
-    stream: &mut CarveStream,
+    evidence: &dyn EvidenceSource,
+    base_offset: u64,
     header: &[u8],
     sector_size: u64,
     max_size: u64,
 ) -> Result<u64, CarveError> {
+    let header_size = 512u64; // Always 512 for header
+
     // Read DIFAT entries from header to find FAT sector locations
     let mut fat_sectors = Vec::new();
 
@@ -200,43 +212,80 @@ fn refine_ole_size(
     }
 
     if fat_sectors.is_empty() {
-        // No FAT sectors found, use header-only estimate
-        return Ok(sector_size * 2);
+        // No FAT sectors found, return minimal size
+        return Ok(header_size + sector_size);
     }
 
-    // Read the first FAT sector to find the highest allocated sector
-    let first_fat_sector = fat_sectors[0];
-    let fat_offset = sector_size + (first_fat_sector as u64 * sector_size);
+    // Read all FAT sectors to find the highest sector that's in use
+    let mut highest_used_sector: u32 = 0;
 
-    if fat_offset + sector_size > max_size {
-        return Ok(fat_offset);
-    }
-
-    // We've already written the header (512 bytes), need to read up to FAT
-    let already_written = 512u64;
-    let to_read = (fat_offset + sector_size).saturating_sub(already_written);
-
-    if to_read > 0 && to_read < 10 * 1024 * 1024 {
-        // Read more data to include FAT sector
-        let _ = stream.read_exact(to_read as usize);
-    }
-
-    // Find highest sector in FAT
-    let mut max_used_sector = first_fat_sector;
-
-    // Simple heuristic: highest sector in first FAT
-    // (Full implementation would need to follow FAT chains)
-    for fat_sector in &fat_sectors {
-        if *fat_sector > max_used_sector {
-            max_used_sector = *fat_sector;
+    // Track FAT sectors themselves as used
+    for &fat_sec in &fat_sectors {
+        if fat_sec > highest_used_sector {
+            highest_used_sector = fat_sec;
         }
     }
 
-    // Estimate: sectors up to max_used + buffer for data
-    let total_sectors = (max_used_sector as u64 + 1) * 3; // Conservative multiplier
-    let estimated = sector_size + (total_sectors * sector_size);
+    // Read first directory sector from header
+    let first_dir_sector = u32::from_le_bytes([header[48], header[49], header[50], header[51]]);
+    if first_dir_sector < 0xFFFFFFFA && first_dir_sector > highest_used_sector {
+        highest_used_sector = first_dir_sector;
+    }
 
-    Ok(estimated.min(max_size))
+    // Read each FAT sector and scan for the highest sector ID that is allocated
+    // A sector is "used" if its FAT entry is not FREESECT (0xFFFFFFFF)
+    for (fat_index, &fat_sector_id) in fat_sectors.iter().enumerate() {
+        let fat_file_offset = header_size + (fat_sector_id as u64 * sector_size);
+
+        if fat_file_offset + sector_size > max_size {
+            break;
+        }
+
+        // Read this FAT sector directly from evidence
+        let mut fat_data = vec![0u8; sector_size as usize];
+        let read_offset = base_offset + fat_file_offset;
+
+        match evidence.read_at(read_offset, &mut fat_data) {
+            Ok(n) if n == sector_size as usize => {}
+            _ => break, // Couldn't read full sector, stop
+        }
+
+        // Now parse the FAT entries from this sector
+        let entries_per_sector = (sector_size / 4) as usize;
+        let base_sector_id = fat_index * entries_per_sector;
+
+        for entry_idx in 0..entries_per_sector {
+            let byte_offset = entry_idx * 4;
+            if byte_offset + 4 > fat_data.len() {
+                break;
+            }
+
+            let fat_entry = u32::from_le_bytes([
+                fat_data[byte_offset],
+                fat_data[byte_offset + 1],
+                fat_data[byte_offset + 2],
+                fat_data[byte_offset + 3],
+            ]);
+
+            // If this entry is not FREESECT (0xFFFFFFFF), this sector index is used
+            // FREESECT = 0xFFFFFFFF, ENDOFCHAIN = 0xFFFFFFFE, FATSECT = 0xFFFFFFFD, etc.
+            if fat_entry != 0xFFFFFFFF {
+                let sector_index = (base_sector_id + entry_idx) as u32;
+                if sector_index > highest_used_sector && sector_index < 0xFFFFFFFA {
+                    highest_used_sector = sector_index;
+                }
+                // Also check where this entry points to (the chain)
+                if fat_entry < 0xFFFFFFFA && fat_entry > highest_used_sector {
+                    highest_used_sector = fat_entry;
+                }
+            }
+        }
+    }
+
+    // File size = header + (highest_sector + 1) * sector_size
+    let total_size = header_size + ((highest_used_sector as u64 + 1) * sector_size);
+
+    Ok(total_size.min(max_size))
 }
 
 impl CarveHandler for OleCarveHandler {
@@ -278,8 +327,14 @@ impl CarveHandler for OleCarveHandler {
             // Parse and validate header
             let (_estimated_size, sector_size) = parse_ole_header(&header)?;
 
-            // Try to refine size estimate by reading FAT
-            let target_size = refine_ole_size(&mut stream, &header, sector_size, effective_max)?;
+            // Try to refine size estimate by reading FAT from evidence directly
+            let target_size = refine_ole_size(
+                ctx.evidence,
+                hit.global_offset,
+                &header,
+                sector_size,
+                effective_max,
+            )?;
 
             // Apply max_size limit
             let target_size = target_size.min(effective_max);
