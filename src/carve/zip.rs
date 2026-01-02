@@ -356,10 +356,11 @@ fn find_eocd(
     let mut bytes_scanned = 0u64;
     let mut carry: Vec<u8> = Vec::new();
     let buf_size = 64 * 1024;
+    let mut last_valid: Option<(u64, ZipEocd)> = None;
 
     loop {
         if max_size > 0 && bytes_scanned >= max_size {
-            return Ok(None);
+            return Ok(last_valid);
         }
 
         let remaining = if max_size > 0 {
@@ -374,7 +375,7 @@ fn find_eocd(
             .read_at(offset, &mut buf)
             .map_err(|e| CarveError::Evidence(e.to_string()))?;
         if n == 0 {
-            return Ok(None);
+            return Ok(last_valid);
         }
         buf.truncate(n);
 
@@ -391,7 +392,12 @@ fn find_eocd(
             let absolute = search_start + pos;
             let eocd_offset = offset.saturating_sub(carry.len() as u64) + absolute as u64;
             if let Ok(parsed) = read_eocd(ctx, eocd_offset) {
-                return Ok(Some((eocd_offset, parsed)));
+                let expected = start
+                    .saturating_add(parsed.cd_offset)
+                    .saturating_add(parsed.cd_size);
+                if expected == eocd_offset {
+                    last_valid = Some((eocd_offset, parsed));
+                }
             }
             search_start = absolute + 1;
         }
@@ -442,6 +448,10 @@ enum ZipKind {
     Docx,
     Xlsx,
     Pptx,
+    Odt,
+    Ods,
+    Odp,
+    Epub,
 }
 
 impl ZipKind {
@@ -450,6 +460,10 @@ impl ZipKind {
             ZipKind::Docx => "docx",
             ZipKind::Xlsx => "xlsx",
             ZipKind::Pptx => "pptx",
+            ZipKind::Odt => "odt",
+            ZipKind::Ods => "ods",
+            ZipKind::Odp => "odp",
+            ZipKind::Epub => "epub",
         }
     }
 
@@ -458,8 +472,18 @@ impl ZipKind {
             ZipKind::Docx => "docx",
             ZipKind::Xlsx => "xlsx",
             ZipKind::Pptx => "pptx",
+            ZipKind::Odt => "odt",
+            ZipKind::Ods => "ods",
+            ZipKind::Odp => "odp",
+            ZipKind::Epub => "epub",
         }
     }
+}
+
+struct ZipEntryInfo {
+    local_header_offset: u64,
+    compressed_size: u64,
+    compression_method: u16,
 }
 
 fn classify_zip(path: &Path, cd_offset: u64, cd_size: u64) -> Option<ZipKind> {
@@ -477,14 +501,20 @@ fn classify_zip(path: &Path, cd_offset: u64, cd_size: u64) -> Option<ZipKind> {
         return None;
     }
 
+    let mut mimetype_entry: Option<ZipEntryInfo> = None;
     let mut idx = 0usize;
     while idx + 46 <= buf.len() {
         if &buf[idx..idx + 4] != b"PK\x01\x02" {
             break;
         }
+        let compression = u16::from_le_bytes([buf[idx + 10], buf[idx + 11]]);
+        let comp_size =
+            u32::from_le_bytes([buf[idx + 20], buf[idx + 21], buf[idx + 22], buf[idx + 23]]) as u64;
         let name_len = u16::from_le_bytes([buf[idx + 28], buf[idx + 29]]) as usize;
         let extra_len = u16::from_le_bytes([buf[idx + 30], buf[idx + 31]]) as usize;
         let comment_len = u16::from_le_bytes([buf[idx + 32], buf[idx + 33]]) as usize;
+        let local_header_offset =
+            u32::from_le_bytes([buf[idx + 42], buf[idx + 43], buf[idx + 44], buf[idx + 45]]) as u64;
         let name_start = idx + 46;
         let name_end = name_start + name_len;
         if name_end > buf.len() {
@@ -500,10 +530,82 @@ fn classify_zip(path: &Path, cd_offset: u64, cd_size: u64) -> Option<ZipKind> {
         if name.starts_with(b"ppt/") {
             return Some(ZipKind::Pptx);
         }
+        if name == b"mimetype" {
+            mimetype_entry = Some(ZipEntryInfo {
+                local_header_offset,
+                compressed_size: comp_size,
+                compression_method: compression,
+            });
+        }
         idx = name_end + extra_len + comment_len;
     }
 
+    if let Some(entry) = mimetype_entry {
+        if let Some(mime) = read_stored_entry(path, &entry) {
+            let mime = trim_ascii(&mime);
+            if mime == b"application/vnd.oasis.opendocument.text" {
+                return Some(ZipKind::Odt);
+            }
+            if mime == b"application/vnd.oasis.opendocument.spreadsheet" {
+                return Some(ZipKind::Ods);
+            }
+            if mime == b"application/vnd.oasis.opendocument.presentation" {
+                return Some(ZipKind::Odp);
+            }
+            if mime == b"application/epub+zip" {
+                return Some(ZipKind::Epub);
+            }
+        }
+    }
+
     None
+}
+
+fn read_stored_entry(path: &Path, entry: &ZipEntryInfo) -> Option<Vec<u8>> {
+    if entry.compression_method != 0 || entry.compressed_size > 1024 {
+        return None;
+    }
+    let mut file = File::open(path).ok()?;
+    if file
+        .seek(SeekFrom::Start(entry.local_header_offset))
+        .is_err()
+    {
+        return None;
+    }
+    let mut header = [0u8; 30];
+    if file.read_exact(&mut header).is_err() {
+        return None;
+    }
+    if &header[0..4] != b"PK\x03\x04" {
+        return None;
+    }
+    let name_len = u16::from_le_bytes([header[26], header[27]]) as u64;
+    let extra_len = u16::from_le_bytes([header[28], header[29]]) as u64;
+    let data_offset = entry
+        .local_header_offset
+        .saturating_add(30)
+        .saturating_add(name_len)
+        .saturating_add(extra_len);
+    if file.seek(SeekFrom::Start(data_offset)).is_err() {
+        return None;
+    }
+    let mut data = vec![0u8; entry.compressed_size as usize];
+    if file.read_exact(&mut data).is_err() {
+        return None;
+    }
+    Some(data)
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let mut start = 0usize;
+    let mut end = bytes.len();
+    while start < end && bytes[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    while end > start && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    &bytes[start..end]
 }
 
 fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -542,6 +644,20 @@ mod tests {
 
         let kind = classify_zip(&path, 48, 63);
         assert_eq!(kind, Some(ZipKind::Docx));
+    }
+
+    #[test]
+    fn classifies_odt_by_mimetype() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("odt.zip");
+        let (data, cd_offset, cd_size) =
+            sample_zip_with_mimetype("application/vnd.oasis.opendocument.text");
+        let mut file = File::create(&path).expect("create");
+        file.write_all(&data).expect("write");
+        drop(file);
+
+        let kind = classify_zip(&path, cd_offset, cd_size);
+        assert_eq!(kind, Some(ZipKind::Odt));
     }
 
     fn sample_zip_with_entry(name: &str) -> Vec<u8> {
@@ -595,6 +711,63 @@ mod tests {
         out.extend_from_slice(&[0x00, 0x00]);
 
         out
+    }
+
+    fn sample_zip_with_mimetype(mime: &str) -> (Vec<u8>, u64, u64) {
+        let name_bytes = b"mimetype";
+        let name_len = name_bytes.len() as u16;
+        let data_bytes = mime.as_bytes();
+        let data_len = data_bytes.len() as u32;
+        let mut out = Vec::new();
+
+        out.extend_from_slice(b"PK\x03\x04");
+        out.extend_from_slice(&[0x14, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        out.extend_from_slice(&data_len.to_le_bytes());
+        out.extend_from_slice(&data_len.to_le_bytes());
+        out.extend_from_slice(&name_len.to_le_bytes());
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(name_bytes);
+        out.extend_from_slice(data_bytes);
+
+        let local_header_len = 30 + name_bytes.len() + data_bytes.len();
+
+        out.extend_from_slice(b"PK\x01\x02");
+        out.extend_from_slice(&[0x14, 0x00]);
+        out.extend_from_slice(&[0x14, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        out.extend_from_slice(&data_len.to_le_bytes());
+        out.extend_from_slice(&data_len.to_le_bytes());
+        out.extend_from_slice(&name_len.to_le_bytes());
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        out.extend_from_slice(name_bytes);
+
+        let cd_size = 46 + name_bytes.len();
+        let cd_offset = local_header_len;
+
+        out.extend_from_slice(b"PK\x05\x06");
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x00, 0x00]);
+        out.extend_from_slice(&[0x01, 0x00]);
+        out.extend_from_slice(&[0x01, 0x00]);
+        out.extend_from_slice(&(cd_size as u32).to_le_bytes());
+        out.extend_from_slice(&(cd_offset as u32).to_le_bytes());
+        out.extend_from_slice(&[0x00, 0x00]);
+
+        (out, cd_offset as u64, cd_size as u64)
     }
 
     #[test]

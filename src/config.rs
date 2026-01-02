@@ -23,6 +23,13 @@ pub struct PatternConfig {
     pub hex: String,
 }
 
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum QuicktimeMode {
+    Mov,
+    Mp4,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub run_id: String,
@@ -64,6 +71,10 @@ pub struct Config {
     pub opencl_device_index: Option<usize>,
     #[serde(default)]
     pub zip_allowed_kinds: Option<Vec<String>>,
+    #[serde(default)]
+    pub ole_allowed_kinds: Option<Vec<String>>,
+    #[serde(default = "default_quicktime_mode")]
+    pub quicktime_mode: QuicktimeMode,
     pub file_types: Vec<FileTypeConfig>,
 }
 
@@ -132,6 +143,10 @@ fn default_gpu_max_string_spans() -> usize {
 
 fn default_parquet_row_group_size() -> usize {
     10_000
+}
+
+fn default_quicktime_mode() -> QuicktimeMode {
+    QuicktimeMode::Mov
 }
 
 fn default_entropy_window_size() -> usize {

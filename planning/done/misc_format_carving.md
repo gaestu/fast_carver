@@ -1,6 +1,7 @@
 # Miscellaneous Format Carving (ICO, EML, ELF, Ebook)
 
-Status: Planned
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Problem Statement
 

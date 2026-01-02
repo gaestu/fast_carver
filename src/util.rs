@@ -139,6 +139,22 @@ fn set_limit(resource: libc::__rlimit_resource_t, requested: u64, label: &str) -
 /// Build the carve registry from configuration
 pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
     let mut handlers: HashMap<String, Box<dyn carve::CarveHandler>> = HashMap::new();
+    let allow_quicktime = matches!(cfg.quicktime_mode, crate::config::QuicktimeMode::Mp4);
+    let mut mp4_ext = "mp4".to_string();
+    let mut has_mp4 = false;
+    for file_type in &cfg.file_types {
+        let validator = if file_type.validator.trim().is_empty() {
+            file_type.id.as_str()
+        } else {
+            file_type.validator.as_str()
+        };
+        if validator == "mp4" {
+            has_mp4 = true;
+            if let Some(ext) = file_type.extensions.first() {
+                mp4_ext = carve::sanitize_extension(ext);
+            }
+        }
+    }
 
     for file_type in &cfg.file_types {
         let validator = if file_type.validator.trim().is_empty() {
@@ -223,6 +239,46 @@ pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
                     )),
                 );
             }
+            "gzip" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::gzip::GzipCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "bzip2" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::bzip2::Bzip2CarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "xz" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::xz::XzCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "tar" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::tar::TarCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
             "webp" => {
                 handlers.insert(
                     file_type.id.clone(),
@@ -260,6 +316,7 @@ pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
                         ext,
                         file_type.min_size,
                         file_type.max_size,
+                        allow_quicktime,
                     )),
                 );
             }
@@ -303,6 +360,47 @@ pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
                     )),
                 );
             }
+            "mov" => {
+                if allow_quicktime && has_mp4 {
+                    debug!("mov handler skipped because quicktime_mode=mp4");
+                    continue;
+                }
+                let handler: Box<dyn carve::CarveHandler> = if allow_quicktime {
+                    Box::new(carve::mp4::Mp4CarveHandler::new(
+                        mp4_ext.clone(),
+                        file_type.min_size,
+                        file_type.max_size,
+                        true,
+                    ))
+                } else {
+                    Box::new(carve::mov::MovCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    ))
+                };
+                handlers.insert(file_type.id.clone(), handler);
+            }
+            "webm" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::webm::WebmCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "wmv" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::wmv::WmvCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
             "mp3" => {
                 handlers.insert(
                     file_type.id.clone(),
@@ -317,6 +415,87 @@ pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
                 handlers.insert(
                     file_type.id.clone(),
                     Box::new(carve::ole::OleCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                        cfg.ole_allowed_kinds.clone(),
+                    )),
+                );
+            }
+            "ogg" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::ogg::OggCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "rtf" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::rtf::RtfCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "ico" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::ico::IcoCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "elf" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::elf::ElfCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "eml" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::eml::EmlCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "mobi" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::mobi::MobiCarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "fb2" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::fb2::Fb2CarveHandler::new(
+                        ext,
+                        file_type.min_size,
+                        file_type.max_size,
+                    )),
+                );
+            }
+            "lrf" => {
+                handlers.insert(
+                    file_type.id.clone(),
+                    Box::new(carve::lrf::LrfCarveHandler::new(
                         ext,
                         file_type.min_size,
                         file_type.max_size,
@@ -407,6 +586,7 @@ pub fn filter_file_types(
 
         let mut known = HashSet::new();
         let mut has_zip = false;
+        let mut has_ole = false;
         for file_type in &cfg.file_types {
             known.insert(file_type.id.to_ascii_lowercase());
             if !file_type.validator.trim().is_empty() {
@@ -417,9 +597,19 @@ pub fn filter_file_types(
             {
                 has_zip = true;
             }
+            if file_type.id.eq_ignore_ascii_case("ole")
+                || file_type.validator.eq_ignore_ascii_case("ole")
+            {
+                has_ole = true;
+            }
         }
         if has_zip {
-            for kind in ["zip", "docx", "xlsx", "pptx"] {
+            for kind in ["zip", "docx", "xlsx", "pptx", "odt", "ods", "odp", "epub"] {
+                known.insert(kind.to_string());
+            }
+        }
+        if has_ole {
+            for kind in ["ole", "doc", "xls", "ppt"] {
                 known.insert(kind.to_string());
             }
         }
@@ -431,6 +621,7 @@ pub fn filter_file_types(
         }
 
         let allow_zip_family = allow.iter().any(|entry| is_zip_kind(entry));
+        let allow_ole_family = allow.iter().any(|entry| is_ole_kind(entry));
 
         cfg.file_types.retain(|file_type| {
             let id = file_type.id.to_ascii_lowercase();
@@ -440,7 +631,11 @@ pub fn filter_file_types(
                 file_type.validator.to_ascii_lowercase()
             };
             let is_zip = id == "zip" || validator == "zip";
-            allow.contains(&id) || allow.contains(&validator) || (is_zip && allow_zip_family)
+            let is_ole = id == "ole" || validator == "ole";
+            allow.contains(&id)
+                || allow.contains(&validator)
+                || (is_zip && allow_zip_family)
+                || (is_ole && allow_ole_family)
         });
 
         if allow_zip_family && has_zip {
@@ -448,12 +643,25 @@ pub fn filter_file_types(
                 cfg.zip_allowed_kinds = None;
             } else {
                 let mut kinds = Vec::new();
-                for kind in ["docx", "xlsx", "pptx"] {
+                for kind in ["docx", "xlsx", "pptx", "odt", "ods", "odp", "epub"] {
                     if allow.contains(kind) {
                         kinds.push(kind.to_string());
                     }
                 }
                 cfg.zip_allowed_kinds = if kinds.is_empty() { None } else { Some(kinds) };
+            }
+        }
+        if allow_ole_family && has_ole {
+            if allow.contains("ole") {
+                cfg.ole_allowed_kinds = None;
+            } else {
+                let mut kinds = Vec::new();
+                for kind in ["doc", "xls", "ppt"] {
+                    if allow.contains(kind) {
+                        kinds.push(kind.to_string());
+                    }
+                }
+                cfg.ole_allowed_kinds = if kinds.is_empty() { None } else { Some(kinds) };
             }
         }
     }
@@ -472,7 +680,14 @@ pub fn filter_file_types(
 }
 
 fn is_zip_kind(value: &str) -> bool {
-    matches!(value, "zip" | "docx" | "xlsx" | "pptx")
+    matches!(
+        value,
+        "zip" | "docx" | "xlsx" | "pptx" | "odt" | "ods" | "odp" | "epub"
+    )
+}
+
+fn is_ole_kind(value: &str) -> bool {
+    matches!(value, "ole" | "doc" | "xls" | "ppt")
 }
 
 #[cfg(test)]

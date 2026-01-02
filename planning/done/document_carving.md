@@ -1,6 +1,7 @@
 # Document Carving (OLE Compound, RTF, Office Open XML)
 
-Status: Partially Implemented
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Implementation Status
 

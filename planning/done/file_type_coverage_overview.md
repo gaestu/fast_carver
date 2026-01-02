@@ -1,6 +1,7 @@
 # File Type Coverage Expansion - Overview
 
-Status: In Progress
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Summary
 

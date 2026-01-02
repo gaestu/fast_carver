@@ -25,10 +25,12 @@ The default config is `config/default.yml`.
 - `enable_sqlite_page_recovery` (bool): enable SQLite page-level URL recovery when DB parsing fails.
 - `opencl_platform_index` (usize, optional): select OpenCL platform by index.
 - `opencl_device_index` (usize, optional): select OpenCL device by index.
-- `zip_allowed_kinds` (list, optional): restrict ZIP outputs to `zip`, `docx`, `xlsx`, `pptx` when set.
+- `zip_allowed_kinds` (list, optional): restrict ZIP outputs to `zip`, `docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`, `epub` when set.
+- `ole_allowed_kinds` (list, optional): restrict OLE outputs to `doc`, `xls`, `ppt` when set.
+- `quicktime_mode` (string): handling for QuickTime; `mov` (default) keeps MOV separate, `mp4` treats QuickTime as MP4.
 - `file_types` (list): enabled file types and patterns.
 
-Note: ZIP carving will classify docx/xlsx/pptx based on central directory entries when present.
+Note: ZIP carving will classify docx/xlsx/pptx/odt/ods/odp/epub based on central directory entries when present.
 
 ## File type configuration
 
@@ -40,7 +42,7 @@ Each entry in `file_types` contains:
 - `footer_patterns`: footer signatures used by the `footer` validator
 - `max_size`: maximum carve size in bytes
 - `min_size`: minimum carve size in bytes
-- `validator`: handler name (`jpeg`, `png`, `gif`, `sqlite`, `pdf`, `zip`, `webp`, `bmp`, `tiff`, `mp4`, `rar`, `sevenz`, `footer`)
+- `validator`: handler name (`jpeg`, `png`, `gif`, `sqlite`, `pdf`, `zip`, `webp`, `bmp`, `tiff`, `mp4`, `mov`, `rar`, `sevenz`, `wav`, `avi`, `mp3`, `ole`, `tar`, `gzip`, `bzip2`, `xz`, `ogg`, `webm`, `wmv`, `rtf`, `ico`, `elf`, `eml`, `mobi`, `fb2`, `lrf`, `footer`)
 - `require_eocd`: optional; for ZIP, require an EOCD before carving (prevents large false positives)
 
 The `footer` validator performs a simple header-to-footer carve for formats without a dedicated handler.

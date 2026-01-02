@@ -22,7 +22,7 @@ fn finds_all_mp4_files() {
         return;
     }
 
-    let result = run_carver_for_types(&["mp4"]);
+    let result = run_carver_for_types(&["mp4", "mov"]);
     let (matched, errors) = verify_carved_files(&result, &expected, "MP4");
 
     assert!(

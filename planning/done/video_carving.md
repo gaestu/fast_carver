@@ -1,6 +1,7 @@
 # Video File Carving (AVI, MOV, WEBM, WMV)
 
-Status: Partially Implemented
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Implementation Status
 

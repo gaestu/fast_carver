@@ -19,6 +19,9 @@ entropy_threshold: 7.5
 enable_sqlite_page_recovery: false
 opencl_platform_index:
 opencl_device_index:
+zip_allowed_kinds:
+ole_allowed_kinds:
+quicktime_mode: mov
 file_types:
   - id: "jpeg"
     extensions: ["jpg", "jpeg"]
@@ -107,7 +110,7 @@ file_types:
     min_size: 8
     validator: "tiff"
   - id: "mp4"
-    extensions: ["mp4", "mov", "m4a", "m4v"]
+    extensions: ["mp4", "m4a", "m4v"]
     header_patterns:
       - id: "mp4_ftyp_14"
         hex: "0000001466747970"
@@ -173,7 +176,7 @@ file_types:
     min_size: 128
     validator: "mp3"
   - id: "ole"
-    extensions: ["doc"]
+    extensions: ["ole"]
     header_patterns:
       - id: "ole_cfb"
         hex: "D0CF11E0A1B11AE1"
@@ -181,3 +184,148 @@ file_types:
     max_size: 536870912
     min_size: 512
     validator: "ole"
+  - id: "tar"
+    extensions: ["tar"]
+    header_patterns:
+      - id: "tar_ustar"
+        hex: "7573746172"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 1024
+    validator: "tar"
+  - id: "gzip"
+    extensions: ["gz"]
+    header_patterns:
+      - id: "gzip_header"
+        hex: "1F8B08"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 18
+    validator: "gzip"
+  - id: "bzip2"
+    extensions: ["bz2"]
+    header_patterns:
+      - id: "bzip2_header"
+        hex: "425A68"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 14
+    validator: "bzip2"
+  - id: "xz"
+    extensions: ["xz"]
+    header_patterns:
+      - id: "xz_header"
+        hex: "FD377A585A00"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 32
+    validator: "xz"
+  - id: "ogg"
+    extensions: ["ogg", "oga", "ogv"]
+    header_patterns:
+      - id: "ogg_sync"
+        hex: "4F676753"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 28
+    validator: "ogg"
+  - id: "mov"
+    extensions: ["mov", "qt"]
+    header_patterns:
+      - id: "mov_ftyp_qt"
+        hex: "000000146674797071742020"
+      - id: "mov_ftyp_qt_18"
+        hex: "000000186674797071742020"
+      - id: "mov_ftyp_qt_1c"
+        hex: "0000001C6674797071742020"
+      - id: "mov_ftyp_qt_20"
+        hex: "000000206674797071742020"
+    footer_patterns: []
+    max_size: 10737418240
+    min_size: 16
+    validator: "mov"
+  - id: "webm"
+    extensions: ["webm", "mkv"]
+    header_patterns:
+      - id: "webm_ebml"
+        hex: "1A45DFA3"
+    footer_patterns: []
+    max_size: 10737418240
+    min_size: 64
+    validator: "webm"
+  - id: "wmv"
+    extensions: ["wmv", "wma", "asf"]
+    header_patterns:
+      - id: "wmv_asf"
+        hex: "3026B2758E66CF11A6D900AA0062CE6C"
+    footer_patterns: []
+    max_size: 10737418240
+    min_size: 64
+    validator: "wmv"
+  - id: "rtf"
+    extensions: ["rtf"]
+    header_patterns:
+      - id: "rtf_header"
+        hex: "7B5C727466"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 7
+    validator: "rtf"
+  - id: "ico"
+    extensions: ["ico", "cur"]
+    header_patterns:
+      - id: "ico_header"
+        hex: "00000100"
+      - id: "cur_header"
+        hex: "00000200"
+    footer_patterns: []
+    max_size: 10485760
+    min_size: 22
+    validator: "ico"
+  - id: "elf"
+    extensions: ["elf", "so"]
+    header_patterns:
+      - id: "elf_magic"
+        hex: "7F454C46"
+    footer_patterns: []
+    max_size: 1073741824
+    min_size: 52
+    validator: "elf"
+  - id: "eml"
+    extensions: ["eml"]
+    header_patterns:
+      - id: "eml_from"
+        hex: "46726F6D3A20"
+      - id: "eml_received"
+        hex: "52656365697665643A"
+    footer_patterns: []
+    max_size: 52428800
+    min_size: 32
+    validator: "eml"
+  - id: "mobi"
+    extensions: ["mobi", "azw", "azw3", "prc"]
+    header_patterns:
+      - id: "mobi_pdb"
+        hex: "424F4F4B4D4F4249"
+    footer_patterns: []
+    max_size: 536870912
+    min_size: 68
+    validator: "mobi"
+  - id: "fb2"
+    extensions: ["fb2"]
+    header_patterns:
+      - id: "fb2_xml"
+        hex: "3C3F786D6C"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 64
+    validator: "fb2"
+  - id: "lrf"
+    extensions: ["lrf"]
+    header_patterns:
+      - id: "lrf_header"
+        hex: "4C524600"
+    footer_patterns: []
+    max_size: 104857600
+    min_size: 64
+    validator: "lrf"

@@ -48,7 +48,7 @@ cargo run -- --input /path/to/image.dd --output ./output --scan-strings --scan-u
 
 This creates a run directory under `./output/<run_id>/` with:
 
-- `carved/` - carved files per type (jpeg/png/gif/pdf/zip/webp/sqlite/bmp/tiff/mp4/rar/7z/wav/avi/mp3/doc/xls/ppt). ZIPs are classified into docx/xlsx/pptx when entries match. OLE compound documents are classified as doc/xls/ppt.
+- `carved/` - carved files per type (jpeg/png/gif/pdf/zip/webp/sqlite/bmp/tiff/mp4/mov/rar/7z/wav/avi/mp3/ogg/tar/gz/bz2/xz/doc/xls/ppt/rtf/ico/elf/eml/mobi/fb2/lrf/webm/wmv). ZIPs are classified into docx/xlsx/pptx/odt/ods/odp/epub when entries match. OLE compound documents are classified as doc/xls/ppt.
 - `metadata/` - JSONL records for carved files, string artefacts, and browser history
 
 ## Configuration
@@ -93,8 +93,12 @@ CLI overrides:
 - `--progress-interval-secs N`: log progress every N seconds (0 disables)
 - `--checkpoint-path`: write a checkpoint file on early exit
 - `--resume-from`: resume scanning from a checkpoint file
-- `--types jpeg,png,sqlite,docx`: limit carving to listed file types (docx/xlsx/pptx are classified from ZIP content)
-- `--disable-zip`: disable ZIP carving (skips zip/docx/xlsx/pptx)
+- `--types jpeg,png,sqlite,docx`: limit carving to listed file types (docx/xlsx/pptx/odt/ods/odp/epub are classified from ZIP content; doc/xls/ppt from OLE)
+- `--disable-zip`: disable ZIP carving (skips zip/docx/xlsx/pptx/odt/ods/odp/epub)
+
+QuickTime handling is configurable in `config/default.yml` with `quicktime_mode`:
+- `mov` (default) keeps QuickTime output under `mov`
+- `mp4` treats QuickTime as MP4 output
 
 Note: `--resume-from` requires the same chunk size and overlap used to create the checkpoint.
 

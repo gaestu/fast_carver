@@ -1,6 +1,7 @@
 # Archive Carving (TAR, GZIP, BZIP2, XZ)
 
-Status: Planned
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Problem Statement
 

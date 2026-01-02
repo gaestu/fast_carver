@@ -1,6 +1,7 @@
 # Audio File Carving (MP3, WAV, OGG)
 
-Status: Partially Implemented
+Status: Implemented
+Implemented in version: 0.2.1
 
 ## Implementation Status
 

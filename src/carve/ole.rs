@@ -30,14 +30,23 @@ pub struct OleCarveHandler {
     extension: String,
     min_size: u64,
     max_size: u64,
+    allowed_kinds: Option<Vec<String>>,
 }
 
 impl OleCarveHandler {
-    pub fn new(extension: String, min_size: u64, max_size: u64) -> Self {
+    pub fn new(
+        extension: String,
+        min_size: u64,
+        max_size: u64,
+        allowed_kinds: Option<Vec<String>>,
+    ) -> Self {
+        let allowed_kinds =
+            allowed_kinds.map(|kinds| kinds.into_iter().map(|v| v.to_ascii_lowercase()).collect());
         Self {
             extension,
             min_size,
             max_size,
+            allowed_kinds,
         }
     }
 }
@@ -288,6 +297,148 @@ fn refine_ole_size(
     Ok(total_size.min(max_size))
 }
 
+fn classify_ole_kind(
+    evidence: &dyn EvidenceSource,
+    base_offset: u64,
+    header: &[u8],
+    sector_size: u64,
+    max_size: u64,
+) -> Option<&'static str> {
+    if header.len() < 512 {
+        return None;
+    }
+    let first_dir_sector = u32::from_le_bytes([header[48], header[49], header[50], header[51]]);
+    if first_dir_sector >= 0xFFFFFFFA {
+        return None;
+    }
+    let fat = read_fat(evidence, base_offset, header, sector_size, max_size).ok()?;
+    let mut current = first_dir_sector;
+    let mut visited = 0u32;
+    let mut found_doc = false;
+    let mut found_xls = false;
+    let mut found_ppt = false;
+
+    while current < 0xFFFFFFFA && visited < 1024 {
+        let offset = base_offset + 512u64 + (current as u64 * sector_size);
+        if offset + sector_size > base_offset.saturating_add(max_size) {
+            break;
+        }
+        let mut buf = vec![0u8; sector_size as usize];
+        let n = evidence.read_at(offset, &mut buf).ok()?;
+        if n < sector_size as usize {
+            break;
+        }
+        for entry in buf.chunks(128) {
+            if entry.len() < 128 {
+                continue;
+            }
+            let name_len = u16::from_le_bytes([entry[64], entry[65]]) as usize;
+            if name_len < 2 || name_len > 64 {
+                continue;
+            }
+            let entry_type = entry[66];
+            if entry_type != 2 {
+                continue;
+            }
+            let name = decode_utf16le(&entry[..name_len.saturating_sub(2)]);
+            if name == "WordDocument" {
+                found_doc = true;
+            } else if name == "Workbook" || name == "Book" {
+                found_xls = true;
+            } else if name == "PowerPoint Document" {
+                found_ppt = true;
+            }
+        }
+
+        let next = fat.get(current as usize).copied().unwrap_or(0xFFFFFFFE);
+        if next >= 0xFFFFFFFA {
+            break;
+        }
+        current = next;
+        visited += 1;
+    }
+
+    if found_doc {
+        Some("doc")
+    } else if found_xls {
+        Some("xls")
+    } else if found_ppt {
+        Some("ppt")
+    } else {
+        None
+    }
+}
+
+fn read_fat(
+    evidence: &dyn EvidenceSource,
+    base_offset: u64,
+    header: &[u8],
+    sector_size: u64,
+    max_size: u64,
+) -> Result<Vec<u32>, CarveError> {
+    let mut fat_sectors = Vec::new();
+
+    for i in 0..109 {
+        let offset = 76 + i * 4;
+        if offset + 4 > header.len() {
+            break;
+        }
+        let sector_id = u32::from_le_bytes([
+            header[offset],
+            header[offset + 1],
+            header[offset + 2],
+            header[offset + 3],
+        ]);
+        if sector_id < 0xFFFFFFFA {
+            fat_sectors.push(sector_id);
+        } else {
+            break;
+        }
+    }
+
+    if fat_sectors.is_empty() {
+        return Err(CarveError::Invalid("ole fat sectors missing".to_string()));
+    }
+
+    let mut fat_entries = Vec::new();
+    for sector_id in fat_sectors {
+        let file_offset = 512u64 + (sector_id as u64 * sector_size);
+        if file_offset + sector_size > max_size {
+            break;
+        }
+        let read_offset = base_offset + file_offset;
+        let mut buf = vec![0u8; sector_size as usize];
+        let n = evidence
+            .read_at(read_offset, &mut buf)
+            .map_err(|e| CarveError::Evidence(e.to_string()))?;
+        if n < sector_size as usize {
+            break;
+        }
+        for chunk in buf.chunks(4) {
+            if chunk.len() < 4 {
+                break;
+            }
+            fat_entries.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        }
+    }
+    Ok(fat_entries)
+}
+
+fn decode_utf16le(bytes: &[u8]) -> String {
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks(2) {
+        if chunk.len() < 2 {
+            break;
+        }
+        let value = u16::from_le_bytes([chunk[0], chunk[1]]);
+        if value == 0 {
+            break;
+        }
+        out.push(value);
+    }
+    String::from_utf16_lossy(&out)
+}
+
 impl CarveHandler for OleCarveHandler {
     fn file_type(&self) -> &str {
         "ole"
@@ -302,7 +453,7 @@ impl CarveHandler for OleCarveHandler {
         hit: &NormalizedHit,
         ctx: &ExtractionContext,
     ) -> Result<Option<CarvedFile>, CarveError> {
-        let (full_path, rel_path) = output_path(
+        let (mut full_path, mut rel_path) = output_path(
             ctx.output_root,
             self.file_type(),
             &self.extension,
@@ -320,12 +471,21 @@ impl CarveHandler for OleCarveHandler {
         let mut truncated = false;
         let mut errors = Vec::new();
 
+        let mut classified_kind: Option<&'static str> = None;
+
         let result: Result<u64, CarveError> = (|| {
             // Read OLE header (512 bytes minimum)
             let header = stream.read_exact(512)?;
 
             // Parse and validate header
             let (_estimated_size, sector_size) = parse_ole_header(&header)?;
+            classified_kind = classify_ole_kind(
+                ctx.evidence,
+                hit.global_offset,
+                &header,
+                sector_size,
+                effective_max,
+            );
 
             // Try to refine size estimate by reading FAT from evidence directly
             let target_size = refine_ole_size(
@@ -379,6 +539,31 @@ impl CarveHandler for OleCarveHandler {
             return Ok(None);
         }
 
+        let mut file_type = self.file_type().to_string();
+        let mut extension = self.extension.clone();
+
+        if let Some(kind) = classified_kind {
+            file_type = kind.to_string();
+            extension = kind.to_string();
+            if file_type != self.file_type() {
+                if let Ok((new_path, new_rel)) =
+                    output_path(ctx.output_root, &file_type, &extension, hit.global_offset)
+                {
+                    if std::fs::rename(&full_path, &new_path).is_ok() {
+                        full_path = new_path;
+                        rel_path = new_rel;
+                    }
+                }
+            }
+        }
+
+        if let Some(allowed) = &self.allowed_kinds {
+            if !allowed.contains(&file_type) {
+                let _ = std::fs::remove_file(&full_path);
+                return Ok(None);
+            }
+        }
+
         // Check if we hit max_size
         if self.max_size > 0 && size >= self.max_size {
             truncated = true;
@@ -395,9 +580,9 @@ impl CarveHandler for OleCarveHandler {
 
         Ok(Some(CarvedFile {
             run_id: ctx.run_id.to_string(),
-            file_type: self.file_type().to_string(),
+            file_type,
             path: rel_path,
-            extension: self.extension.clone(),
+            extension,
             global_start: hit.global_offset,
             global_end,
             size,
@@ -528,7 +713,7 @@ mod tests {
         let evidence = SliceEvidence {
             data: ole_data.clone(),
         };
-        let handler = OleCarveHandler::new("doc".to_string(), 0, 0);
+        let handler = OleCarveHandler::new("doc".to_string(), 0, 0, None);
         let hit = NormalizedHit {
             global_offset: 0,
             file_type_id: "ole".to_string(),
@@ -553,7 +738,7 @@ mod tests {
     fn rejects_non_ole_data() {
         let data = vec![0x00; 1024];
         let evidence = SliceEvidence { data };
-        let handler = OleCarveHandler::new("doc".to_string(), 0, 0);
+        let handler = OleCarveHandler::new("doc".to_string(), 0, 0, None);
         let hit = NormalizedHit {
             global_offset: 0,
             file_type_id: "ole".to_string(),

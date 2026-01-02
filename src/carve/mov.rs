@@ -1,3 +1,8 @@
+//! MOV (QuickTime) carving handler.
+//!
+//! QuickTime files use the same atom/box structure as MP4, but typically use
+//! the 'qt  ' brand in the ftyp box.
+
 use std::fs::File;
 use std::io::Write;
 
@@ -11,27 +16,25 @@ use crate::scanner::NormalizedHit;
 const BOX_HEADER_LEN: usize = 8;
 const EXTENDED_HEADER_LEN: usize = 16;
 
-pub struct Mp4CarveHandler {
+pub struct MovCarveHandler {
     extension: String,
     min_size: u64,
     max_size: u64,
-    allow_quicktime: bool,
 }
 
-impl Mp4CarveHandler {
-    pub fn new(extension: String, min_size: u64, max_size: u64, allow_quicktime: bool) -> Self {
+impl MovCarveHandler {
+    pub fn new(extension: String, min_size: u64, max_size: u64) -> Self {
         Self {
             extension,
             min_size,
             max_size,
-            allow_quicktime,
         }
     }
 }
 
-impl CarveHandler for Mp4CarveHandler {
+impl CarveHandler for MovCarveHandler {
     fn file_type(&self) -> &str {
-        "mp4"
+        "mov"
     }
 
     fn extension(&self) -> &str {
@@ -54,7 +57,7 @@ impl CarveHandler for Mp4CarveHandler {
         loop {
             if self.max_size > 0 && offset - hit.global_offset >= self.max_size {
                 truncated = true;
-                errors.push("max_size reached before MP4 end".to_string());
+                errors.push("max_size reached before MOV end".to_string());
                 break;
             }
 
@@ -69,7 +72,7 @@ impl CarveHandler for Mp4CarveHandler {
                         break;
                     }
                     truncated = true;
-                    errors.push("eof before MP4 end".to_string());
+                    errors.push("eof before MOV end".to_string());
                     break;
                 }
             };
@@ -85,7 +88,7 @@ impl CarveHandler for Mp4CarveHandler {
                             break;
                         }
                         truncated = true;
-                        errors.push("eof before MP4 extended size".to_string());
+                        errors.push("eof before MOV extended size".to_string());
                         break;
                     }
                 };
@@ -98,7 +101,7 @@ impl CarveHandler for Mp4CarveHandler {
                     break;
                 }
                 truncated = true;
-                errors.push("mp4 box size 0 encountered".to_string());
+                errors.push("mov box size 0 encountered".to_string());
                 break;
             } else {
                 (size32, BOX_HEADER_LEN as u64)
@@ -115,10 +118,12 @@ impl CarveHandler for Mp4CarveHandler {
                 if box_type != b"ftyp" {
                     return Ok(None);
                 }
-                if let Some(brand) = read_exact_at(ctx, offset.saturating_add(header_len), 4) {
-                    if brand == b"qt  " && !self.allow_quicktime {
-                        return Ok(None);
-                    }
+                let brand = match read_exact_at(ctx, offset.saturating_add(header_len), 4) {
+                    Some(bytes) => bytes,
+                    None => return Ok(None),
+                };
+                if brand != b"qt  " {
+                    return Ok(None);
                 }
                 seen_ftyp = true;
             }
@@ -131,7 +136,7 @@ impl CarveHandler for Mp4CarveHandler {
                 && (offset - hit.global_offset).saturating_add(box_size) > self.max_size
             {
                 truncated = true;
-                errors.push("max_size reached before MP4 end".to_string());
+                errors.push("max_size reached before MOV end".to_string());
                 break;
             }
 
@@ -168,7 +173,7 @@ impl CarveHandler for Mp4CarveHandler {
         )?;
         if eof_truncated {
             truncated = true;
-            errors.push("eof before MP4 end".to_string());
+            errors.push("eof before MOV end".to_string());
         }
         file.flush()?;
 
@@ -214,61 +219,23 @@ fn read_exact_at(ctx: &ExtractionContext, offset: u64, len: usize) -> Option<Vec
 
 #[cfg(test)]
 mod tests {
-    use super::Mp4CarveHandler;
+    use super::MovCarveHandler;
     use crate::carve::{CarveHandler, ExtractionContext};
     use crate::evidence::RawFileSource;
     use crate::scanner::NormalizedHit;
+    use tempfile::tempdir;
 
     #[test]
-    fn carves_minimal_mp4() {
-        let temp_dir = tempfile::tempdir().expect("tempdir");
-        let output_root = temp_dir.path().join("out");
-        std::fs::create_dir_all(&output_root).expect("output root");
-
-        let mut mp4 = Vec::new();
-        mp4.extend_from_slice(&24u32.to_be_bytes());
-        mp4.extend_from_slice(b"ftyp");
-        mp4.extend_from_slice(b"isom");
-        mp4.extend_from_slice(&0u32.to_be_bytes());
-        mp4.extend_from_slice(b"isom");
-        mp4.extend_from_slice(b"iso2");
-        mp4.extend_from_slice(&8u32.to_be_bytes());
-        mp4.extend_from_slice(b"moov");
-
-        let input_path = temp_dir.path().join("image.bin");
-        std::fs::write(&input_path, &mp4).expect("write mp4");
-
-        let evidence = RawFileSource::open(&input_path).expect("evidence");
-        let ctx = ExtractionContext {
-            run_id: "test",
-            output_root: &output_root,
-            evidence: &evidence,
-        };
-        let handler = Mp4CarveHandler::new("mp4".to_string(), 8, 0, false);
-        let hit = NormalizedHit {
-            global_offset: 0,
-            file_type_id: "mp4".to_string(),
-            pattern_id: "mp4_ftyp_18".to_string(),
-        };
-
-        let carved = handler.process_hit(&hit, &ctx).expect("carve");
-        let carved = carved.expect("carved");
-        assert!(carved.validated);
-        assert_eq!(carved.size, mp4.len() as u64);
-    }
-
-    #[test]
-    fn rejects_quicktime_when_disabled() {
-        let temp_dir = tempfile::tempdir().expect("tempdir");
+    fn carves_minimal_mov() {
+        let temp_dir = tempdir().expect("tempdir");
         let output_root = temp_dir.path().join("out");
         std::fs::create_dir_all(&output_root).expect("output root");
 
         let mut mov = Vec::new();
-        mov.extend_from_slice(&24u32.to_be_bytes());
+        mov.extend_from_slice(&20u32.to_be_bytes());
         mov.extend_from_slice(b"ftyp");
         mov.extend_from_slice(b"qt  ");
         mov.extend_from_slice(&0u32.to_be_bytes());
-        mov.extend_from_slice(b"qt  ");
         mov.extend_from_slice(b"qt  ");
         mov.extend_from_slice(&8u32.to_be_bytes());
         mov.extend_from_slice(b"moov");
@@ -282,47 +249,11 @@ mod tests {
             output_root: &output_root,
             evidence: &evidence,
         };
-        let handler = Mp4CarveHandler::new("mp4".to_string(), 8, 0, false);
+        let handler = MovCarveHandler::new("mov".to_string(), 8, 0);
         let hit = NormalizedHit {
             global_offset: 0,
-            file_type_id: "mp4".to_string(),
-            pattern_id: "mp4_ftyp_18".to_string(),
-        };
-
-        let carved = handler.process_hit(&hit, &ctx).expect("carve");
-        assert!(carved.is_none());
-    }
-
-    #[test]
-    fn carves_quicktime_when_enabled() {
-        let temp_dir = tempfile::tempdir().expect("tempdir");
-        let output_root = temp_dir.path().join("out");
-        std::fs::create_dir_all(&output_root).expect("output root");
-
-        let mut mov = Vec::new();
-        mov.extend_from_slice(&24u32.to_be_bytes());
-        mov.extend_from_slice(b"ftyp");
-        mov.extend_from_slice(b"qt  ");
-        mov.extend_from_slice(&0u32.to_be_bytes());
-        mov.extend_from_slice(b"qt  ");
-        mov.extend_from_slice(b"qt  ");
-        mov.extend_from_slice(&8u32.to_be_bytes());
-        mov.extend_from_slice(b"moov");
-
-        let input_path = temp_dir.path().join("image.bin");
-        std::fs::write(&input_path, &mov).expect("write mov");
-
-        let evidence = RawFileSource::open(&input_path).expect("evidence");
-        let ctx = ExtractionContext {
-            run_id: "test",
-            output_root: &output_root,
-            evidence: &evidence,
-        };
-        let handler = Mp4CarveHandler::new("mp4".to_string(), 8, 0, true);
-        let hit = NormalizedHit {
-            global_offset: 0,
-            file_type_id: "mp4".to_string(),
-            pattern_id: "mp4_ftyp_18".to_string(),
+            file_type_id: "mov".to_string(),
+            pattern_id: "mov_ftyp_qt".to_string(),
         };
 
         let carved = handler.process_hit(&hit, &ctx).expect("carve");

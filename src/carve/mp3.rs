@@ -164,6 +164,15 @@ fn is_id3v1_tag(data: &[u8]) -> bool {
     data.len() >= 3 && &data[0..3] == b"TAG"
 }
 
+fn read_exact_at(ctx: &ExtractionContext, offset: u64, len: usize) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; len];
+    let n = ctx.evidence.read_at(offset, &mut buf).ok()?;
+    if n < len {
+        return None;
+    }
+    Some(buf)
+}
+
 impl CarveHandler for Mp3CarveHandler {
     fn file_type(&self) -> &str {
         "mp3"
@@ -242,48 +251,28 @@ impl CarveHandler for Mp3CarveHandler {
                 }
             }
 
-            // Walk remaining frames
+            // Walk remaining frames (peek before writing to avoid trailing garbage)
             while frame_count < max_frames && total_size < max_size {
-                // Try to read next frame header
-                let frame_header = match stream.read_exact(4) {
-                    Ok(h) => h,
-                    Err(CarveError::Eof) => break,
-                    Err(CarveError::Truncated) => break,
-                    Err(e) => return Err(e),
+                let next_offset = hit.global_offset.saturating_add(total_size);
+                let frame_header = match read_exact_at(ctx, next_offset, 4) {
+                    Some(h) => h,
+                    None => break,
                 };
 
                 // Check for ID3v1 tag at end
                 if is_id3v1_tag(&frame_header) {
-                    // Read rest of ID3v1 (128 - 3 = 125 bytes, but we read 4)
-                    let _ = stream.read_exact(124);
+                    stream.read_exact(128)?;
                     total_size += 128;
                     break;
                 }
 
                 // Parse frame header
                 if let Some(frame_size) = parse_frame_header(&frame_header) {
-                    // Read rest of frame
-                    let remaining = frame_size.saturating_sub(4);
-                    if remaining > 0 {
-                        match stream.read_exact(remaining as usize) {
-                            Ok(_) => {}
-                            Err(CarveError::Eof) => {
-                                total_size += 4; // We got the header at least
-                                break;
-                            }
-                            Err(CarveError::Truncated) => {
-                                total_size += 4;
-                                break;
-                            }
-                            Err(e) => return Err(e),
-                        }
-                    }
+                    stream.read_exact(frame_size as usize)?;
                     total_size += frame_size as u64;
                     frame_count += 1;
                 } else {
-                    // Invalid frame header - might be end of audio or garbage
-                    // We already wrote these 4 bytes, but they're not valid audio
-                    total_size += 4;
+                    // Invalid frame header - stop without writing it
                     break;
                 }
             }
