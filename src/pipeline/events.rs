@@ -24,4 +24,6 @@ pub enum MetadataEvent {
     RunSummary(RunSummary),
     /// High entropy region detected
     Entropy(EntropyRegion),
+    /// Flush buffered data to disk
+    Flush,
 }

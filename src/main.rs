@@ -14,20 +14,19 @@ struct LoggingProgressReporter;
 
 impl pipeline::ProgressReporter for LoggingProgressReporter {
     fn on_progress(&self, snapshot: &pipeline::ProgressSnapshot) {
-        let percent = if snapshot.total_bytes > 0 {
-            (snapshot.bytes_scanned as f64 / snapshot.total_bytes as f64) * 100.0
-        } else {
-            0.0
-        };
+        let eta_str = snapshot
+            .eta_seconds
+            .map(|s| format!("{:.0}s", s))
+            .unwrap_or_else(|| "N/A".to_string());
         info!(
-            "progress bytes_scanned={} total_bytes={} pct={:.1} hits={} files={} rate_mib={:.2} eta_secs={:?} carve_errs={} meta_errs={} sqlite_errs={}",
+            "progress {:.1}% scanned={}/{} hits={} files={} rate={:.2}MiB/s eta={} errs=[carve:{} meta:{} sql:{}]",
+            snapshot.completion_pct,
             snapshot.bytes_scanned,
             snapshot.total_bytes,
-            percent,
             snapshot.hits_found,
             snapshot.files_carved,
             snapshot.throughput_mib,
-            snapshot.eta_seconds,
+            eta_str,
             snapshot.carve_errors,
             snapshot.metadata_errors,
             snapshot.sqlite_errors
@@ -44,17 +43,27 @@ fn main() -> Result<()> {
     // Apply CLI overrides to config
     cfg.merge_cli(&cli_opts);
 
-    // Apply file type filters
-    let unknown_types =
-        util::filter_file_types(&mut cfg, cli_opts.types.as_deref(), cli_opts.disable_zip);
+    // Apply file type filters (support both --types and --enable-types)
+    let types_filter = cli::get_types_filter(&cli_opts);
+    let unknown_types = util::filter_file_types(
+        &mut cfg,
+        types_filter.map(|v| v.as_slice()),
+        cli_opts.disable_zip,
+    );
     for unknown in unknown_types {
-        warn!("unknown file type in --types: {unknown}");
+        warn!("unknown file type in --types/--enable-types: {unknown}");
     }
     if cli_opts.disable_zip {
         info!("zip carving disabled by CLI");
     }
-    if cli_opts.types.is_some() && cfg.file_types.is_empty() {
-        warn!("no file types enabled after applying --types filter");
+    if types_filter.is_some() && cfg.file_types.is_empty() {
+        warn!("no file types enabled after applying type filter");
+    }
+    if cli_opts.dry_run {
+        info!("dry-run mode enabled: no files will be written");
+    }
+    if cli_opts.validate_carved {
+        info!("post-carving validation enabled");
     }
     if cfg.enable_string_scan
         && !cfg.enable_url_scan
@@ -65,9 +74,15 @@ fn main() -> Result<()> {
     }
 
     util::apply_resource_limits(cfg.max_memory_mib, cfg.max_open_files)?;
-    util::ensure_output_dir(&cli_opts.output)?;
+
+    // In dry-run mode, skip output directory creation
+    if !cli_opts.dry_run {
+        util::ensure_output_dir(&cli_opts.output)?;
+    }
     let run_output_dir = cli_opts.output.join(&cfg.run_id);
-    std::fs::create_dir_all(&run_output_dir)?;
+    if !cli_opts.dry_run {
+        std::fs::create_dir_all(&run_output_dir)?;
+    }
 
     let tool_version = env!("CARGO_PKG_VERSION");
     let evidence_path = cli_opts.input.clone();
@@ -100,16 +115,20 @@ fn main() -> Result<()> {
     };
 
     let meta_backend = util::backend_from_cli(cli_opts.metadata_backend);
-    let meta_sink = metadata::build_sink(
-        meta_backend,
-        &cfg,
-        &cfg.run_id,
-        tool_version,
-        &loaded.config_hash,
-        &evidence_path,
-        &evidence_sha256,
-        &run_output_dir,
-    )?;
+    let meta_sink: Box<dyn metadata::MetadataSink> = if cli_opts.dry_run {
+        metadata::build_dry_run_sink()
+    } else {
+        metadata::build_sink(
+            meta_backend,
+            &cfg,
+            &cfg.run_id,
+            tool_version,
+            &loaded.config_hash,
+            &evidence_path,
+            &evidence_sha256,
+            &run_output_dir,
+        )?
+    };
 
     let sig_scanner = scanner::build_signature_scanner(&cfg, cli_opts.gpu)?;
     let sig_scanner = Arc::from(sig_scanner);
@@ -123,7 +142,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg)?);
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, cli_opts.dry_run)?);
 
     let chunk_size = cli_opts.chunk_size_mib.saturating_mul(MIB);
     let overlap = cli_opts

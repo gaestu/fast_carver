@@ -136,6 +136,10 @@ fn cli_opts_for_input(path: PathBuf) -> CliOptions {
         compute_evidence_sha256: false,
         disable_zip: false,
         types: None,
+        enable_types: None,
+        dry_run: false,
+        validate_carved: false,
+        remove_invalid: false,
     }
 }
 
@@ -207,7 +211,7 @@ fn golden_carves_from_raw() {
 
     let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn swiftbeaver::scanner::SignatureScanner> = Arc::from(sig_scanner);
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     let stats = pipeline::run_pipeline(
         &cfg,
@@ -310,7 +314,7 @@ fn golden_carves_from_e01_with_strings() {
         swiftbeaver::strings::build_string_scanner(&cfg, false).expect("string scanner"),
     ));
 
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     let stats = pipeline::run_pipeline(
         &cfg,

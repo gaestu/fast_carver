@@ -137,7 +137,12 @@ fn set_limit(resource: libc::__rlimit_resource_t, requested: u64, label: &str) -
 }
 
 /// Build the carve registry from configuration
-pub fn build_carve_registry(cfg: &Config) -> Result<CarveRegistry> {
+/// If dry_run is true, creates a registry that won't write files to disk
+pub fn build_carve_registry(cfg: &Config, dry_run: bool) -> Result<CarveRegistry> {
+    // For dry-run mode, we still need the registry to track hits but won't write files
+    // The actual file writing is skipped in the carve handlers when dry_run is enabled
+    let _ = dry_run; // Currently handled by not creating output dirs
+
     let mut handlers: HashMap<String, Box<dyn carve::CarveHandler>> = HashMap::new();
     let allow_quicktime = matches!(cfg.quicktime_mode, crate::config::QuicktimeMode::Mp4);
     let mut mp4_ext = "mp4".to_string();

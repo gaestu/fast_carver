@@ -74,7 +74,7 @@ fn resume_from_checkpoint_skips_scanned_chunks() {
 
     let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn swiftbeaver::scanner::SignatureScanner> = Arc::from(sig_scanner);
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     let checkpoint_cfg = Some(pipeline::CheckpointConfig {
         path: checkpoint_path.clone(),
@@ -124,7 +124,7 @@ fn resume_from_checkpoint_skips_scanned_chunks() {
 
     let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn swiftbeaver::scanner::SignatureScanner> = Arc::from(sig_scanner);
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     let checkpoint_cfg = Some(pipeline::CheckpointConfig {
         path: checkpoint_path,

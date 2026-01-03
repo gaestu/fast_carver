@@ -93,8 +93,12 @@ CLI overrides:
 - `--progress-interval-secs N`: log progress every N seconds (0 disables)
 - `--checkpoint-path`: write a checkpoint file on early exit
 - `--resume-from`: resume scanning from a checkpoint file
-- `--types jpeg,png,sqlite,docx`: limit carving to listed file types (docx/xlsx/pptx/odt/ods/odp/epub are classified from ZIP content; doc/xls/ppt from OLE)
+- `--types jpeg,png,sqlite,docx`: limit carving to listed file types (exclusion mode)
+- `--enable-types jpeg,png`: enable only listed types (inclusion mode, conflicts with `--types`)
 - `--disable-zip`: disable ZIP carving (skips zip/docx/xlsx/pptx/odt/ods/odp/epub)
+- `--dry-run`: scan and report hits without writing carved files (useful for estimating output size)
+- `--validate-carved`: validate carved files after carving (checks file integrity)
+- `--remove-invalid`: remove invalid carved files (requires `--validate-carved`)
 
 QuickTime handling is configurable in `config/default.yml` with `quicktime_mode`:
 - `mov` (default) keeps QuickTime output under `mov`

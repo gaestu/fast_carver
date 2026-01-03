@@ -121,7 +121,8 @@ fn parquet_writes_expected_files() {
     };
     sink.record_entropy(&entropy).expect("record entropy");
 
-    sink.flush().expect("flush");
+    // Explicitly drop sink to ensure all data is flushed and footers are written
+    drop(sink);
 
     let parquet_dir = run_output_dir.join("parquet");
     let files_path = parquet_dir.join("files_jpeg.parquet");

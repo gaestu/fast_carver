@@ -86,8 +86,15 @@ pub fn spawn_metadata_thread(
                         warn!("metadata record error: {err}");
                     }
                 }
+                MetadataEvent::Flush => {
+                    if let Err(err) = sink.flush() {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                        warn!("metadata flush error: {err}");
+                    }
+                }
             }
         }
+        // Final flush when channel closes
         if let Err(err) = sink.flush() {
             error_count.fetch_add(1, Ordering::Relaxed);
             warn!("metadata flush error: {err}");

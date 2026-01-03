@@ -63,6 +63,12 @@ pub struct ProgressSnapshot {
     pub elapsed_seconds: f64,
     pub throughput_mib: f64,
     pub eta_seconds: Option<u64>,
+    /// Completion percentage (0.0 - 100.0)
+    pub completion_pct: f64,
+    /// Number of files that passed validation (if validation enabled)
+    pub validation_pass: u64,
+    /// Number of files that failed validation (if validation enabled)
+    pub validation_fail: u64,
 }
 
 /// Progress callback trait for long-running scans.
@@ -395,6 +401,9 @@ fn run_pipeline_inner(
                 );
                 progress.reporter.on_progress(&snapshot);
                 last_progress = Instant::now();
+
+                // Periodic flush to ensure data is persisted
+                let _ = meta_tx.send(MetadataEvent::Flush);
             }
         }
         let scanned_total = bytes_scanned
@@ -547,6 +556,12 @@ fn build_progress_snapshot(
         None
     };
 
+    let completion_pct = if total_bytes > 0 {
+        (scanned_total as f64 / total_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+
     ProgressSnapshot {
         bytes_scanned: scanned_total,
         total_bytes,
@@ -561,6 +576,9 @@ fn build_progress_snapshot(
         elapsed_seconds,
         throughput_mib,
         eta_seconds,
+        completion_pct,
+        validation_pass: 0, // To be populated when validation is enabled
+        validation_fail: 0, // To be populated when validation is enabled
     }
 }
 

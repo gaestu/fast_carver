@@ -96,6 +96,36 @@ pub trait MetadataSink: Send + Sync {
     fn flush(&self) -> Result<(), MetadataError>;
 }
 
+/// A no-op sink for dry-run mode that doesn't write any files
+pub struct DryRunSink;
+
+impl MetadataSink for DryRunSink {
+    fn record_file(&self, _file: &CarvedFile) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_string(&self, _artefact: &StringArtefact) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_history(&self, _record: &BrowserHistoryRecord) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_cookie(&self, _record: &BrowserCookieRecord) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_download(&self, _record: &BrowserDownloadRecord) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_run_summary(&self, _summary: &RunSummary) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn record_entropy(&self, _region: &EntropyRegion) -> Result<(), MetadataError> {
+        Ok(())
+    }
+    fn flush(&self) -> Result<(), MetadataError> {
+        Ok(())
+    }
+}
+
 pub fn build_sink(
     backend: MetadataBackendKind,
     cfg: &crate::config::Config,
@@ -133,4 +163,9 @@ pub fn build_sink(
             run_output_dir,
         ),
     }
+}
+
+/// Build a dry-run sink that doesn't write any files
+pub fn build_dry_run_sink() -> Box<dyn MetadataSink> {
+    Box::new(DryRunSink)
 }

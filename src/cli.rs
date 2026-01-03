@@ -153,10 +153,31 @@ pub struct CliOptions {
     /// Limit carving to these file types (comma-separated list)
     #[arg(long, value_delimiter = ',')]
     pub types: Option<Vec<String>>,
+
+    /// Enable only these file types (alias for --types)
+    #[arg(long, value_delimiter = ',', conflicts_with = "types")]
+    pub enable_types: Option<Vec<String>>,
+
+    /// Dry run mode: scan and count but don't write files
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Validate carved files after extraction (runs file magic check)
+    #[arg(long)]
+    pub validate_carved: bool,
+
+    /// Remove files that fail post-carving validation (requires --validate-carved)
+    #[arg(long, requires = "validate_carved")]
+    pub remove_invalid: bool,
 }
 
 pub fn parse() -> CliOptions {
     CliOptions::parse()
+}
+
+/// Get effective types filter (from --types or --enable-types)
+pub fn get_types_filter(opts: &CliOptions) -> Option<&Vec<String>> {
+    opts.types.as_ref().or(opts.enable_types.as_ref())
 }
 
 #[cfg(test)]
@@ -317,5 +338,69 @@ mod tests {
         .expect("parse");
         assert_eq!(opts.checkpoint_path, Some(PathBuf::from("checkpoint.json")));
         assert_eq!(opts.resume_from, Some(PathBuf::from("resume.json")));
+    }
+
+    #[test]
+    fn parses_dry_run_flag() {
+        let opts = CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--dry-run"])
+            .expect("parse");
+        assert!(opts.dry_run);
+    }
+
+    #[test]
+    fn parses_validate_carved_flag() {
+        let opts =
+            CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--validate-carved"])
+                .expect("parse");
+        assert!(opts.validate_carved);
+    }
+
+    #[test]
+    fn parses_remove_invalid_requires_validate() {
+        let result =
+            CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--remove-invalid"]);
+        assert!(
+            result.is_err(),
+            "remove-invalid should require validate-carved"
+        );
+
+        let opts = CliOptions::try_parse_from([
+            "SwiftBeaver",
+            "--input",
+            "image.dd",
+            "--validate-carved",
+            "--remove-invalid",
+        ])
+        .expect("parse");
+        assert!(opts.validate_carved);
+        assert!(opts.remove_invalid);
+    }
+
+    #[test]
+    fn parses_enable_types_list() {
+        let opts = CliOptions::try_parse_from([
+            "SwiftBeaver",
+            "--input",
+            "image.dd",
+            "--enable-types",
+            "jpeg,png,gif",
+        ])
+        .expect("parse");
+        let types = opts.enable_types.expect("enable_types");
+        assert_eq!(types, vec!["jpeg", "png", "gif"]);
+    }
+
+    #[test]
+    fn types_and_enable_types_conflict() {
+        let result = CliOptions::try_parse_from([
+            "SwiftBeaver",
+            "--input",
+            "image.dd",
+            "--types",
+            "jpeg",
+            "--enable-types",
+            "png",
+        ]);
+        assert!(result.is_err(), "types and enable-types should conflict");
     }
 }

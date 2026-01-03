@@ -588,6 +588,59 @@ impl ParquetSinkInner {
         }
         Ok(())
     }
+
+    /// Flush all writer buffers without finishing (allows continued writes)
+    fn flush_all_buffers(&mut self) -> Result<(), MetadataError> {
+        if let Some(writer) = &mut self.files_jpeg {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_png {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_gif {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_sqlite {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_pdf {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_zip {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_webp {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.files_other {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.artefacts_urls {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.artefacts_emails {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.artefacts_phones {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.browser_history {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.browser_cookies {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.browser_downloads {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.entropy_regions {
+            writer.flush_buffer()?;
+        }
+        if let Some(writer) = &mut self.run_summary {
+            writer.flush_buffer()?;
+        }
+        Ok(())
+    }
 }
 
 pub struct ParquetSink {
@@ -776,8 +829,22 @@ impl MetadataSink for ParquetSink {
     }
 
     fn flush(&self) -> Result<(), MetadataError> {
+        // Flush all buffers to ensure data is written to disk
+        // This allows recovery of data if the process is interrupted
         let mut inner = self.lock_inner()?;
-        inner.finish_all()
+        inner.flush_all_buffers()?;
+        // Note: We don't call finish_all() here because that would close writers
+        // and prevent further writes. Finish is called in Drop.
+        Ok(())
+    }
+}
+
+impl Drop for ParquetSink {
+    fn drop(&mut self) {
+        // Ensure all writers are properly finished when the sink is dropped
+        if let Ok(mut inner) = self.inner.lock() {
+            let _ = inner.finish_all();
+        }
     }
 }
 

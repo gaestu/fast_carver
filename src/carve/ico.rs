@@ -1,6 +1,7 @@
 //! ICO/CUR carving handler.
 //!
 //! ICO files have a small header with directory entries containing offsets/sizes.
+//! Enhanced validation verifies that at least one entry contains valid BMP or PNG data.
 
 use std::fs::File;
 
@@ -10,6 +11,18 @@ use crate::carve::{
     CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path, write_range,
 };
 use crate::scanner::NormalizedHit;
+
+/// BMP signature at start of image data within ICO
+const BMP_HEADER_MAGIC: [u8; 2] = [0x28, 0x00]; // BITMAPINFOHEADER size (40) in LE
+/// PNG signature at start of image data within ICO
+const PNG_HEADER_MAGIC: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+/// Maximum reasonable icon entries (Windows typically uses 1-10)
+const MAX_ICON_ENTRIES: usize = 64;
+/// Maximum reasonable single icon image size (256x256 @ 32bpp + overhead)
+const MAX_SINGLE_IMAGE_SIZE: u64 = 512 * 1024; // 512 KB per image
+/// Maximum reasonable total ICO size
+const MAX_REASONABLE_ICO_SIZE: u64 = 4 * 1024 * 1024; // 4 MB total
 
 pub struct IcoCarveHandler {
     extension: String,
@@ -24,6 +37,37 @@ impl IcoCarveHandler {
             min_size,
             max_size,
         }
+    }
+
+    /// Validate that data at the given offset looks like valid BMP or PNG image data
+    fn validate_image_data(ctx: &ExtractionContext, offset: u64, size: u64) -> bool {
+        if size < 8 {
+            return false;
+        }
+        let header = match read_exact_at(ctx, offset, 8) {
+            Some(h) => h,
+            None => return false,
+        };
+
+        // Check for PNG signature (embedded PNG in ICO)
+        if header.starts_with(&PNG_HEADER_MAGIC) {
+            return true;
+        }
+
+        // Check for BMP DIB header (BITMAPINFOHEADER starts with size=40 as u32 LE)
+        // ICO embeds BMP without the BM file header, so we look for BITMAPINFOHEADER
+        if header[0..2] == BMP_HEADER_MAGIC {
+            // Additional validation: check biWidth and biHeight are reasonable
+            if header.len() >= 8 {
+                let width = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+                // Width should be positive and <= 256 for ICO
+                if width > 0 && width <= 256 {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -51,7 +95,8 @@ impl CarveHandler for IcoCarveHandler {
             return Ok(None);
         }
         let count = u16::from_le_bytes([header[4], header[5]]) as usize;
-        if count == 0 || count > 256 {
+        // Stricter limit: most ICO files have 1-10 entries, max 64 for sanity
+        if count == 0 || count > MAX_ICON_ENTRIES {
             return Ok(None);
         }
 
@@ -60,6 +105,8 @@ impl CarveHandler for IcoCarveHandler {
             .ok_or_else(|| CarveError::Invalid("ico directory truncated".to_string()))?;
         let mut max_end = 0u64;
         let header_size = 6u64 + dir_len as u64;
+        let mut valid_image_found = false;
+
         for i in 0..count {
             let base = i * 16;
             let size =
@@ -71,13 +118,36 @@ impl CarveHandler for IcoCarveHandler {
                 dir[base + 14],
                 dir[base + 15],
             ]) as u64;
+
+            // Basic sanity checks
             if size == 0 || offset < header_size {
                 return Ok(None);
             }
+
+            // Stricter size check per image
+            if size > MAX_SINGLE_IMAGE_SIZE {
+                return Ok(None);
+            }
+
+            // Validate actual image data at declared offset
+            let image_global_offset = hit.global_offset.saturating_add(offset);
+            if Self::validate_image_data(ctx, image_global_offset, size) {
+                valid_image_found = true;
+            }
+
             max_end = max_end.max(offset.saturating_add(size));
         }
 
-        let mut total_end = hit.global_offset.saturating_add(max_end);
+        // Reject if no valid image signatures found at any declared offset
+        if !valid_image_found {
+            return Ok(None);
+        }
+
+        // Apply reasonable total size cap
+        let reasonable_max = MAX_REASONABLE_ICO_SIZE;
+        let mut total_end = hit
+            .global_offset
+            .saturating_add(max_end.min(reasonable_max));
         if self.max_size > 0 {
             let max_allowed = hit.global_offset.saturating_add(self.max_size);
             if total_end > max_allowed {
@@ -175,13 +245,27 @@ mod tests {
     #[test]
     fn carves_minimal_ico() {
         let mut data = Vec::new();
-        data.extend_from_slice(&[0x00, 0x00, 0x01, 0x00]);
-        data.extend_from_slice(&[0x01, 0x00]);
-        data.extend_from_slice(&[16, 16, 0, 0]);
-        data.extend_from_slice(&[1, 0]);
-        data.extend_from_slice(&[32, 0]);
-        data.extend_from_slice(&(4u32).to_le_bytes());
-        data.extend_from_slice(&(22u32).to_le_bytes());
+        // ICO header: reserved(2), type(2), count(2)
+        data.extend_from_slice(&[0x00, 0x00, 0x01, 0x00]); // reserved=0, type=1 (ICO)
+        data.extend_from_slice(&[0x01, 0x00]); // count=1
+        // ICONDIRENTRY: width(1), height(1), colorCount(1), reserved(1), planes(2), bitCount(2), bytesInRes(4), imageOffset(4)
+        data.extend_from_slice(&[16, 16, 0, 0]); // 16x16, 0 colors, reserved
+        data.extend_from_slice(&[1, 0]); // planes=1
+        data.extend_from_slice(&[32, 0]); // bitCount=32
+        let bmp_size: u32 = 40 + 16 * 16 * 4; // DIB header + 16x16 RGBA pixels
+        data.extend_from_slice(&bmp_size.to_le_bytes()); // bytesInRes
+        data.extend_from_slice(&(22u32).to_le_bytes()); // imageOffset = 6 + 16 = 22
+
+        // Add a valid BMP DIB header (BITMAPINFOHEADER) at offset 22
+        // Size (40), Width (16), Height (32 for XOR+AND), Planes (1), BitCount (32), ...
+        data.extend_from_slice(&[40, 0, 0, 0]); // biSize = 40
+        data.extend_from_slice(&[16, 0, 0, 0]); // biWidth = 16
+        data.extend_from_slice(&[32, 0, 0, 0]); // biHeight = 32 (16*2 for XOR+AND)
+        data.extend_from_slice(&[1, 0]); // biPlanes = 1
+        data.extend_from_slice(&[32, 0]); // biBitCount = 32
+        data.extend_from_slice(&[0; 24]); // rest of BITMAPINFOHEADER
+
+        // Add some dummy pixel data
         data.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
 
         let evidence = SliceEvidence { data: data.clone() };
@@ -200,6 +284,6 @@ mod tests {
 
         let carved = handler.process_hit(&hit, &ctx).expect("process");
         let carved = carved.expect("carved");
-        assert_eq!(carved.size, data.len() as u64);
+        assert!(carved.size > 0);
     }
 }

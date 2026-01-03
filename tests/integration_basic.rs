@@ -131,15 +131,30 @@ fn sample_webp() -> Vec<u8> {
 
 fn sample_bmp() -> Vec<u8> {
     let mut data = Vec::new();
+    // File size: BMP header (14) + DIB header (40) + 1x1 pixel (4 bytes with padding)
     let file_size = 58u32;
-    data.extend_from_slice(b"BM");
-    data.extend_from_slice(&file_size.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes());
-    data.extend_from_slice(&54u32.to_le_bytes());
-    data.extend_from_slice(&40u32.to_le_bytes());
-    data.extend_from_slice(&[0u8; 36]);
-    data.extend_from_slice(&[0u8; 4]);
+    // BMP file header (14 bytes)
+    data.extend_from_slice(b"BM"); // Signature
+    data.extend_from_slice(&file_size.to_le_bytes()); // File size
+    data.extend_from_slice(&0u16.to_le_bytes()); // Reserved
+    data.extend_from_slice(&0u16.to_le_bytes()); // Reserved
+    data.extend_from_slice(&54u32.to_le_bytes()); // Pixel data offset (14 + 40)
+
+    // DIB header (BITMAPINFOHEADER - 40 bytes)
+    data.extend_from_slice(&40u32.to_le_bytes()); // DIB header size
+    data.extend_from_slice(&1i32.to_le_bytes()); // Width = 1
+    data.extend_from_slice(&1i32.to_le_bytes()); // Height = 1
+    data.extend_from_slice(&1u16.to_le_bytes()); // Planes = 1
+    data.extend_from_slice(&24u16.to_le_bytes()); // Bits per pixel = 24
+    data.extend_from_slice(&0u32.to_le_bytes()); // Compression = none
+    data.extend_from_slice(&4u32.to_le_bytes()); // Image size (1x1 with 4-byte row)
+    data.extend_from_slice(&0u32.to_le_bytes()); // X pixels per meter
+    data.extend_from_slice(&0u32.to_le_bytes()); // Y pixels per meter
+    data.extend_from_slice(&0u32.to_le_bytes()); // Colors used
+    data.extend_from_slice(&0u32.to_le_bytes()); // Important colors
+
+    // Pixel data: 1 pixel (3 bytes BGR) + 1 byte padding = 4 bytes
+    data.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]);
     data
 }
 
@@ -256,7 +271,7 @@ fn integration_carves_basic_formats() {
     let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn swiftbeaver::scanner::SignatureScanner> = Arc::from(sig_scanner);
 
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     pipeline::run_pipeline(
         &cfg,

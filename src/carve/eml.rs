@@ -1,6 +1,7 @@
 //! EML carving handler.
 //!
-//! Heuristically scans email headers and stops at the next "From " boundary or EOF.
+//! Validates presence of multiple RFC 822 headers and email-like content.
+//! Enhanced validation requires at least 2 header markers and email patterns.
 
 use std::fs::File;
 
@@ -11,8 +12,43 @@ use crate::carve::{
 };
 use crate::scanner::NormalizedHit;
 
-const HEADER_MARKERS: [&[u8]; 4] = [b"From:", b"To:", b"Subject:", b"Date:"];
+/// Required header markers for email validation
+const HEADER_MARKERS: [&[u8]; 6] = [
+    b"From:",
+    b"To:",
+    b"Subject:",
+    b"Date:",
+    b"Message-ID:",
+    b"MIME-Version:",
+];
 const MBOX_BOUNDARY: &[u8] = b"\nFrom ";
+
+/// Minimum number of distinct headers required for validation
+const MIN_HEADERS_REQUIRED: usize = 2;
+
+/// Check if byte slice contains an @ character (basic email indicator)
+fn contains_email_pattern(data: &[u8]) -> bool {
+    // Look for patterns like "user@domain" in From: or To: lines
+    data.iter().any(|&b| b == b'@')
+}
+
+/// Check if data has CRLF or LF line endings typical of email
+fn has_email_line_endings(data: &[u8]) -> bool {
+    // Emails should have line breaks, check for \r\n or \n
+    data.windows(2).any(|w| w == b"\r\n") || data.contains(&b'\n')
+}
+
+/// Check if this looks like a template string or debug output (not real email)
+fn looks_like_template(data: &[u8]) -> bool {
+    // Template strings often contain %s, %d, {}, or similar
+    let templates = [b"%s" as &[u8], b"%d", b"{}", b"<%s>", b"${"];
+    for tmpl in templates {
+        if find_pattern(data, tmpl).is_some() {
+            return true;
+        }
+    }
+    false
+}
 
 pub struct EmlCarveHandler {
     extension: String,
@@ -44,14 +80,35 @@ impl CarveHandler for EmlCarveHandler {
         hit: &NormalizedHit,
         ctx: &ExtractionContext,
     ) -> Result<Option<CarvedFile>, CarveError> {
-        let head = read_prefix(ctx, hit.global_offset, 512);
+        // Read larger header for better validation
+        let head = read_prefix(ctx, hit.global_offset, 2048);
         if head.is_empty() {
             return Ok(None);
         }
-        if !HEADER_MARKERS
+
+        // Count how many distinct header markers are present
+        let header_count = HEADER_MARKERS
             .iter()
-            .any(|m| find_pattern(&head, m).is_some())
-        {
+            .filter(|m| find_pattern(&head, m).is_some())
+            .count();
+
+        // Require at least MIN_HEADERS_REQUIRED distinct headers
+        if header_count < MIN_HEADERS_REQUIRED {
+            return Ok(None);
+        }
+
+        // Reject template strings (common false positive)
+        if looks_like_template(&head) {
+            return Ok(None);
+        }
+
+        // Require email-like content (@ symbol in header area)
+        if !contains_email_pattern(&head) {
+            return Ok(None);
+        }
+
+        // Require proper line endings
+        if !has_email_line_endings(&head) {
             return Ok(None);
         }
 
@@ -201,8 +258,9 @@ mod tests {
     }
 
     #[test]
-    fn carves_simple_eml() {
-        let data = b"From: a\nTo: b\nSubject: c\n\nBody".to_vec();
+    fn carves_valid_eml() {
+        // Valid email with multiple headers and @ symbol
+        let data = b"From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Test Email\r\nDate: Mon, 1 Jan 2024 12:00:00 +0000\r\n\r\nBody content here".to_vec();
         let evidence = SliceEvidence { data: data.clone() };
         let handler = EmlCarveHandler::new("eml".to_string(), 0, 0);
         let hit = NormalizedHit {
@@ -220,5 +278,49 @@ mod tests {
         let carved = handler.process_hit(&hit, &ctx).expect("process");
         let carved = carved.expect("carved");
         assert_eq!(carved.size, data.len() as u64);
+    }
+
+    #[test]
+    fn rejects_template_string() {
+        // Template string that looks like email header (false positive case)
+        let data = b"From: %s via WMI auto-mailer\nSubject: %s\n\nBody".to_vec();
+        let evidence = SliceEvidence { data };
+        let handler = EmlCarveHandler::new("eml".to_string(), 0, 0);
+        let hit = NormalizedHit {
+            global_offset: 0,
+            file_type_id: "eml".to_string(),
+            pattern_id: "eml_from".to_string(),
+        };
+        let dir = tempdir().expect("tempdir");
+        let ctx = ExtractionContext {
+            run_id: "test",
+            output_root: dir.path(),
+            evidence: &evidence,
+        };
+
+        let carved = handler.process_hit(&hit, &ctx).expect("process");
+        assert!(carved.is_none(), "template string should be rejected");
+    }
+
+    #[test]
+    fn rejects_single_header() {
+        // Only one header - should be rejected
+        let data = b"From: user@example.com\n\nBody only".to_vec();
+        let evidence = SliceEvidence { data };
+        let handler = EmlCarveHandler::new("eml".to_string(), 0, 0);
+        let hit = NormalizedHit {
+            global_offset: 0,
+            file_type_id: "eml".to_string(),
+            pattern_id: "eml_from".to_string(),
+        };
+        let dir = tempdir().expect("tempdir");
+        let ctx = ExtractionContext {
+            run_id: "test",
+            output_root: dir.path(),
+            evidence: &evidence,
+        };
+
+        let carved = handler.process_hit(&hit, &ctx).expect("process");
+        assert!(carved.is_none(), "single header should be rejected");
     }
 }

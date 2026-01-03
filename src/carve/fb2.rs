@@ -1,6 +1,7 @@
 //! FB2 (FictionBook) carving handler.
 //!
-//! Validates presence of <FictionBook> and scans for closing tag.
+//! Enhanced validation requires FictionBook tag or namespace within first 4KB.
+//! Rejects generic XML files that don't contain FictionBook markers.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -11,8 +12,22 @@ use crate::carve::{CarveError, CarveHandler, CarvedFile, ExtractionContext, outp
 use crate::scanner::NormalizedHit;
 
 const FB2_HEADER: &[u8] = b"<?xml";
-const FB2_TAG: &[u8] = b"<FictionBook";
+const FB2_TAG_LOWER: &[u8] = b"<fictionbook";
+const FB2_NAMESPACE: &[u8] = b"fictionbook";
 const FB2_END: &[u8] = b"</FictionBook>";
+const FB2_END_LOWER: &[u8] = b"</fictionbook>";
+
+/// Maximum bytes to scan for FictionBook tag at start of file
+const MAX_TAG_SEARCH_BYTES: usize = 4096;
+
+/// Check if data contains FictionBook tag or namespace (case-insensitive)
+fn contains_fictionbook_marker(data: &[u8]) -> bool {
+    // Convert to lowercase for case-insensitive search
+    let lower: Vec<u8> = data.iter().map(|b| b.to_ascii_lowercase()).collect();
+
+    // Look for <fictionbook tag or fictionbook namespace reference
+    find_pattern(&lower, FB2_TAG_LOWER).is_some() || find_pattern(&lower, FB2_NAMESPACE).is_some()
+}
 
 pub struct Fb2CarveHandler {
     extension: String,
@@ -44,6 +59,22 @@ impl CarveHandler for Fb2CarveHandler {
         hit: &NormalizedHit,
         ctx: &ExtractionContext,
     ) -> Result<Option<CarvedFile>, CarveError> {
+        // Early validation: check for FictionBook marker in first 4KB BEFORE creating file
+        let preview = read_prefix(ctx, hit.global_offset, MAX_TAG_SEARCH_BYTES);
+        if preview.is_empty() {
+            return Ok(None);
+        }
+
+        // Must start with <?xml
+        if preview.len() < FB2_HEADER.len() || &preview[..FB2_HEADER.len()] != FB2_HEADER {
+            return Ok(None);
+        }
+
+        // Must contain FictionBook tag or namespace in header area
+        if !contains_fictionbook_marker(&preview) {
+            return Ok(None);
+        }
+
         let (full_path, rel_path) = output_path(
             ctx.output_root,
             self.file_type(),
@@ -63,7 +94,6 @@ impl CarveHandler for Fb2CarveHandler {
         let buf_size = 64 * 1024;
         let mut bytes_written = 0u64;
         let mut carry: Vec<u8> = Vec::new();
-        let mut saw_tag = false;
 
         loop {
             if self.max_size > 0 && bytes_written >= self.max_size {
@@ -90,24 +120,13 @@ impl CarveHandler for Fb2CarveHandler {
             }
             buf.truncate(n);
 
-            if bytes_written == 0 {
-                if buf.len() < FB2_HEADER.len() || &buf[..FB2_HEADER.len()] != FB2_HEADER {
-                    let _ = std::fs::remove_file(&full_path);
-                    return Ok(None);
-                }
-            }
-
-            if !saw_tag {
-                let mut tag_scan = carry.clone();
-                tag_scan.extend_from_slice(&buf);
-                if find_pattern(&tag_scan, FB2_TAG).is_some() {
-                    saw_tag = true;
-                }
-            }
-
+            // Search for end tag (case-insensitive)
             let mut search_buf = carry.clone();
             search_buf.extend_from_slice(&buf);
-            if let Some(pos) = find_pattern(&search_buf, FB2_END) {
+            let lower_search: Vec<u8> = search_buf.iter().map(|b| b.to_ascii_lowercase()).collect();
+
+            let end_pos = find_pattern(&lower_search, FB2_END_LOWER);
+            if let Some(pos) = end_pos {
                 let write_len = if pos < carry.len() {
                     pos + FB2_END.len() - carry.len()
                 } else {
@@ -144,11 +163,6 @@ impl CarveHandler for Fb2CarveHandler {
         }
 
         writer.flush()?;
-
-        if !saw_tag {
-            let _ = std::fs::remove_file(&full_path);
-            return Ok(None);
-        }
 
         if bytes_written < self.min_size {
             let _ = std::fs::remove_file(&full_path);
@@ -194,6 +208,13 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+fn read_prefix(ctx: &ExtractionContext, offset: u64, len: usize) -> Vec<u8> {
+    let mut buf = vec![0u8; len];
+    let n = ctx.evidence.read_at(offset, &mut buf).ok().unwrap_or(0);
+    buf.truncate(n);
+    buf
 }
 
 #[cfg(test)]
@@ -245,5 +266,52 @@ mod tests {
         let carved = carved.expect("carved");
         assert!(carved.validated);
         assert_eq!(carved.size, data.len() as u64);
+    }
+
+    #[test]
+    fn rejects_generic_xml() {
+        // Generic XML without FictionBook marker should be rejected
+        let data = b"<?xml version='1.0'?><scpd xmlns='urn:schemas-upnp-org:service-1-0'><specVersion><major>1</major></specVersion></scpd>".to_vec();
+        let evidence = SliceEvidence { data };
+        let handler = Fb2CarveHandler::new("fb2".to_string(), 0, 0);
+        let hit = NormalizedHit {
+            global_offset: 0,
+            file_type_id: "fb2".to_string(),
+            pattern_id: "fb2_xml".to_string(),
+        };
+        let dir = tempdir().expect("tempdir");
+        let ctx = ExtractionContext {
+            run_id: "test",
+            output_root: dir.path(),
+            evidence: &evidence,
+        };
+
+        let carved = handler.process_hit(&hit, &ctx).expect("process");
+        assert!(carved.is_none(), "generic XML should be rejected");
+    }
+
+    #[test]
+    fn accepts_fictionbook_namespace() {
+        // FB2 with namespace reference
+        let data = b"<?xml version='1.0'?><FictionBook xmlns='http://www.gribuser.ru/xml/fictionbook/2.0'>content</FictionBook>".to_vec();
+        let evidence = SliceEvidence { data: data.clone() };
+        let handler = Fb2CarveHandler::new("fb2".to_string(), 0, 0);
+        let hit = NormalizedHit {
+            global_offset: 0,
+            file_type_id: "fb2".to_string(),
+            pattern_id: "fb2_xml".to_string(),
+        };
+        let dir = tempdir().expect("tempdir");
+        let ctx = ExtractionContext {
+            run_id: "test",
+            output_root: dir.path(),
+            evidence: &evidence,
+        };
+
+        let carved = handler.process_hit(&hit, &ctx).expect("process");
+        assert!(
+            carved.is_some(),
+            "FictionBook with namespace should be accepted"
+        );
     }
 }

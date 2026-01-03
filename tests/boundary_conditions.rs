@@ -54,7 +54,7 @@ fn run_pipeline_with_bytes(
     let sig_scanner = scanner::build_signature_scanner(&cfg, false).expect("scanner");
     let sig_scanner: Arc<dyn swiftbeaver::scanner::SignatureScanner> = Arc::from(sig_scanner);
 
-    let carve_registry = Arc::new(util::build_carve_registry(&cfg).expect("registry"));
+    let carve_registry = Arc::new(util::build_carve_registry(&cfg, false).expect("registry"));
 
     let stats = pipeline::run_pipeline(
         &cfg,
