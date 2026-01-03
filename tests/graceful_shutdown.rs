@@ -1,6 +1,6 @@
 use std::fs;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use swiftbeaver::config;
 use swiftbeaver::evidence::RawFileSource;

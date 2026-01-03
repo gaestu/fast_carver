@@ -6,7 +6,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use crate::carve::{
-    output_path, write_range, CarveError, CarveHandler, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path, write_range,
 };
 use crate::scanner::NormalizedHit;
 
@@ -625,7 +625,7 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_zip, ZipCarveHandler, ZipKind};
+    use super::{ZipCarveHandler, ZipKind, classify_zip};
     use crate::carve::{CarveHandler, ExtractionContext};
     use crate::evidence::RawFileSource;
     use crate::scanner::NormalizedHit;

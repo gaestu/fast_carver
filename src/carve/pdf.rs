@@ -3,7 +3,7 @@ use std::io::{BufWriter, Write};
 
 use sha2::{Digest, Sha256};
 
-use crate::carve::{output_path, CarveError, CarveHandler, CarvedFile, ExtractionContext};
+use crate::carve::{CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path};
 use crate::scanner::NormalizedHit;
 
 const PDF_HEADER: &[u8] = b"%PDF-";
@@ -197,9 +197,5 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn read_byte(ctx: &ExtractionContext, offset: u64) -> Option<u8> {
     let mut buf = [0u8; 1];
     let n = ctx.evidence.read_at(offset, &mut buf).ok()?;
-    if n == 1 {
-        Some(buf[0])
-    } else {
-        None
-    }
+    if n == 1 { Some(buf[0]) } else { None }
 }

@@ -6,7 +6,7 @@
 use std::fs::File;
 
 use crate::carve::{
-    output_path, riff, CarveError, CarveHandler, CarveStream, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarveStream, CarvedFile, ExtractionContext, output_path, riff,
 };
 use crate::scanner::NormalizedHit;
 

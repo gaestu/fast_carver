@@ -321,19 +321,21 @@ pub mod artifacts {
 
     #[cfg(test)]
     mod tests {
-        use super::{extract_artefacts, ArtefactKind, ArtefactScanConfig};
+        use super::{ArtefactKind, ArtefactScanConfig, extract_artefacts};
         use crate::strings::flags;
 
         #[test]
         fn extracts_basic_artefacts() {
             let data = b"visit https://example.com and mail test@example.com";
             let out = extract_artefacts("run1", 100, 0, 0, data, ArtefactScanConfig::all());
-            assert!(out
-                .iter()
-                .any(|a| matches!(a.artefact_kind, ArtefactKind::Url)));
-            assert!(out
-                .iter()
-                .any(|a| matches!(a.artefact_kind, ArtefactKind::Email)));
+            assert!(
+                out.iter()
+                    .any(|a| matches!(a.artefact_kind, ArtefactKind::Url))
+            );
+            assert!(
+                out.iter()
+                    .any(|a| matches!(a.artefact_kind, ArtefactKind::Email))
+            );
         }
 
         #[test]
@@ -423,9 +425,10 @@ pub mod artifacts {
                     phones: false,
                 },
             );
-            assert!(out
-                .iter()
-                .all(|a| matches!(a.artefact_kind, ArtefactKind::Email)));
+            assert!(
+                out.iter()
+                    .all(|a| matches!(a.artefact_kind, ArtefactKind::Email))
+            );
         }
     }
 }

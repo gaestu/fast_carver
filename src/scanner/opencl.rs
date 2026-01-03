@@ -1,13 +1,13 @@
 use std::ptr;
 use std::sync::Mutex;
 
-use anyhow::{anyhow, Result};
-use opencl3::command_queue::{CommandQueue, CL_BLOCKING};
+use anyhow::{Result, anyhow};
+use opencl3::command_queue::{CL_BLOCKING, CommandQueue};
 use opencl3::context::Context;
-use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
+use opencl3::device::{CL_DEVICE_TYPE_GPU, Device};
 use opencl3::kernel::Kernel;
 use opencl3::memory::{
-    Buffer, ClMem, CL_MEM_COPY_HOST_PTR, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE, CL_MEM_WRITE_ONLY,
+    Buffer, CL_MEM_COPY_HOST_PTR, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE, CL_MEM_WRITE_ONLY, ClMem,
 };
 use opencl3::platform::get_platforms;
 use opencl3::program::Program;

@@ -29,3 +29,7 @@ Thumbs.db
 
 # Golden image artifacts
 /tests/golden_image/golden.raw
+
+# Temporary files
+/tmp
+/tmp*

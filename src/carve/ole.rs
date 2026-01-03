@@ -8,7 +8,7 @@
 use std::fs::File;
 
 use crate::carve::{
-    output_path, CarveError, CarveHandler, CarveStream, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarveStream, CarvedFile, ExtractionContext, output_path,
 };
 use crate::evidence::EvidenceSource;
 use crate::scanner::NormalizedHit;

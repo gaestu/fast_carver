@@ -3,8 +3,8 @@
 //! Worker thread spawning and management for the processing pipeline.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -19,8 +19,8 @@ use crate::scanner::{NormalizedHit, SignatureScanner};
 use crate::strings::artifacts::ArtefactScanConfig;
 use crate::strings::{self, StringScanner, StringSpan};
 
-use super::events::MetadataEvent;
 use super::EntropyConfig;
+use super::events::MetadataEvent;
 
 /// Job containing a chunk of data to scan
 pub struct ScanJob {

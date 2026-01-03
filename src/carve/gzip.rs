@@ -8,7 +8,7 @@ use std::fs::File;
 use sha2::{Digest, Sha256};
 
 use crate::carve::{
-    output_path, write_range, CarveError, CarveHandler, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path, write_range,
 };
 use crate::scanner::NormalizedHit;
 

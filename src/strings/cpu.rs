@@ -1,5 +1,5 @@
 use crate::chunk::ScanChunk;
-use crate::strings::{flags, StringScanner, StringSpan};
+use crate::strings::{StringScanner, StringSpan, flags};
 
 pub struct CpuStringScanner {
     min_len: usize,

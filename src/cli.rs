@@ -175,8 +175,9 @@ mod tests {
 
     #[test]
     fn parses_utf16_flag() {
-        let opts = CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--scan-utf16"])
-            .expect("parse");
+        let opts =
+            CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--scan-utf16"])
+                .expect("parse");
         assert!(opts.scan_utf16);
     }
 
@@ -196,8 +197,9 @@ mod tests {
 
     #[test]
     fn parses_scan_url_flags() {
-        let opts = CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--scan-urls"])
-            .expect("parse");
+        let opts =
+            CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--scan-urls"])
+                .expect("parse");
         assert!(opts.scan_urls);
         let opts =
             CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--no-scan-urls"])
@@ -225,9 +227,13 @@ mod tests {
 
     #[test]
     fn parses_sqlite_page_flag() {
-        let opts =
-            CliOptions::try_parse_from(["SwiftBeaver", "--input", "image.dd", "--scan-sqlite-pages"])
-                .expect("parse");
+        let opts = CliOptions::try_parse_from([
+            "SwiftBeaver",
+            "--input",
+            "image.dd",
+            "--scan-sqlite-pages",
+        ])
+        .expect("parse");
         assert!(opts.scan_sqlite_pages);
     }
 

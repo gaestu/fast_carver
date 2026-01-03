@@ -3,7 +3,7 @@ use std::io::{BufWriter, Write};
 
 use sha2::{Digest, Sha256};
 
-use crate::carve::{output_path, CarveError, CarveHandler, CarvedFile, ExtractionContext};
+use crate::carve::{CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path};
 use crate::scanner::NormalizedHit;
 
 pub struct JpegCarveHandler {

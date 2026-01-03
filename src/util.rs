@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 #[cfg(unix)]
 use tracing::info;
 use tracing::{debug, warn};
@@ -716,10 +716,11 @@ mod tests {
         let loaded = config::load_config(None).expect("config");
         let mut cfg = loaded.config;
         let _ = filter_file_types(&mut cfg, Some(&["zip".to_string()]), true);
-        assert!(cfg
-            .file_types
-            .iter()
-            .all(|ft| !ft.id.eq_ignore_ascii_case("zip")));
+        assert!(
+            cfg.file_types
+                .iter()
+                .all(|ft| !ft.id.eq_ignore_ascii_case("zip"))
+        );
     }
 
     #[test]

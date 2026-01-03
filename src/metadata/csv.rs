@@ -639,36 +639,42 @@ mod tests {
 
         sink.flush().expect("flush");
 
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("carved_files.csv")
-            .exists());
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("string_artefacts.csv")
-            .exists());
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("browser_history.csv")
-            .exists());
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("browser_cookies.csv")
-            .exists());
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("browser_downloads.csv")
-            .exists());
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("carved_files.csv")
+                .exists()
+        );
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("string_artefacts.csv")
+                .exists()
+        );
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("browser_history.csv")
+                .exists()
+        );
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("browser_cookies.csv")
+                .exists()
+        );
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("browser_downloads.csv")
+                .exists()
+        );
         assert!(dir.path().join("metadata").join("run_summary.csv").exists());
-        assert!(dir
-            .path()
-            .join("metadata")
-            .join("entropy_regions.csv")
-            .exists());
+        assert!(
+            dir.path()
+                .join("metadata")
+                .join("entropy_regions.csv")
+                .exists()
+        );
     }
 }

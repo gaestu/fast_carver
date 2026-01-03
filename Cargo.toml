@@ -1,8 +1,8 @@
 [package]
 name = "swiftbeaver"
 version = "0.2.1"
-edition = "2021"
-authors = ["Uris"]
+edition = "2024"
+authors = ["gaestu"]
 description = "High-speed forensic file and artefact carver with optional GPU acceleration."
 license = "MIT"
 

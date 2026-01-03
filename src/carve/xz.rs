@@ -7,7 +7,7 @@ use std::fs::File;
 use sha2::{Digest, Sha256};
 
 use crate::carve::{
-    output_path, write_range, CarveError, CarveHandler, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path, write_range,
 };
 use crate::scanner::NormalizedHit;
 
@@ -226,7 +226,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{crc32, XzCarveHandler};
+    use super::{XzCarveHandler, crc32};
     use crate::carve::{CarveHandler, ExtractionContext};
     use crate::evidence::{EvidenceError, EvidenceSource};
     use crate::scanner::NormalizedHit;

@@ -7,7 +7,7 @@ use std::fs::File;
 use sha2::{Digest, Sha256};
 
 use crate::carve::{
-    output_path, write_range, CarveError, CarveHandler, CarvedFile, ExtractionContext,
+    CarveError, CarveHandler, CarvedFile, ExtractionContext, output_path, write_range,
 };
 use crate::scanner::NormalizedHit;
 
@@ -157,7 +157,7 @@ fn read_exact_at(ctx: &ExtractionContext, offset: u64, len: usize) -> Option<Vec
 
 #[cfg(test)]
 mod tests {
-    use super::{WmvCarveHandler, ASF_FILE_PROP_GUID, ASF_HEADER_GUID};
+    use super::{ASF_FILE_PROP_GUID, ASF_HEADER_GUID, WmvCarveHandler};
     use crate::carve::{CarveHandler, ExtractionContext};
     use crate::evidence::RawFileSource;
     use crate::scanner::NormalizedHit;

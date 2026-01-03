@@ -435,8 +435,10 @@ mod tests {
 
         let records =
             extract_history_from_pages(&path, "run1", "sqlite/history.sqlite").expect("pages");
-        assert!(records
-            .iter()
-            .any(|r| r.url == "https://overflow.example.com"));
+        assert!(
+            records
+                .iter()
+                .any(|r| r.url == "https://overflow.example.com")
+        );
     }
 }

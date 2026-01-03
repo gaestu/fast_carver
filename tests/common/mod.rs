@@ -95,7 +95,11 @@ pub fn get_expected_files(manifest: &Manifest, extensions: &[&str]) -> Vec<Manif
 /// Run the carver pipeline with only specific file types enabled
 pub fn run_carver_for_types(types: &[&str]) -> CarveResult {
     let raw_path = golden_raw_path();
-    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let temp_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tmp")
+        .join("test_runs");
+    fs::create_dir_all(&temp_root).expect("temp root");
+    let temp_dir = tempfile::tempdir_in(&temp_root).expect("tempdir");
 
     let loaded = config::load_config(None).expect("config");
     let mut cfg = loaded.config;

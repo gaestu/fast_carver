@@ -7,8 +7,8 @@ pub mod events;
 pub mod workers;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -16,15 +16,15 @@ use crossbeam_channel::bounded;
 use tracing::{info, warn};
 
 use crate::carve::CarveRegistry;
-use crate::checkpoint::{save_checkpoint, CheckpointState};
-use crate::chunk::{build_chunks, ScanChunk};
+use crate::checkpoint::{CheckpointState, save_checkpoint};
+use crate::chunk::{ScanChunk, build_chunks};
 use crate::config::Config;
 use crate::constants::{CHANNEL_CAPACITY_MULTIPLIER, MIN_CHANNEL_CAPACITY};
 use crate::evidence::EvidenceSource;
 use crate::metadata::{MetadataSink, RunSummary};
 use crate::scanner::SignatureScanner;
-use crate::strings::artifacts::ArtefactScanConfig;
 use crate::strings::StringScanner;
+use crate::strings::artifacts::ArtefactScanConfig;
 
 use events::MetadataEvent;
 use workers::{ScanJob, StringJob};

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use swiftbeaver::config;
 use swiftbeaver::evidence::RawFileSource;

@@ -179,7 +179,7 @@ mod ewf {
     const LIBEWF_FORMAT_UNKNOWN: u8 = 0x00;
 
     #[link(name = "ewf")]
-    extern "C" {
+    unsafe extern "C" {
         fn libewf_get_access_flags_read() -> c_int;
 
         fn libewf_check_file_signature(
@@ -230,7 +230,7 @@ mod ewf {
         ) -> ssize_t;
 
         fn libewf_error_sprint(error: *mut LibEwfError, string: *mut c_char, size: size_t)
-            -> c_int;
+        -> c_int;
         fn libewf_error_free(error: *mut *mut LibEwfError);
     }
 
@@ -383,16 +383,18 @@ mod ewf {
         }
 
         let mut buf = vec![0i8; 1024];
-        let rc = libewf_error_sprint(error, buf.as_mut_ptr(), buf.len());
+        let rc = unsafe { libewf_error_sprint(error, buf.as_mut_ptr(), buf.len()) };
         let msg = if rc >= 0 {
-            CStr::from_ptr(buf.as_ptr())
+            unsafe { CStr::from_ptr(buf.as_ptr()) }
                 .to_string_lossy()
                 .trim_end_matches('\0')
                 .to_string()
         } else {
             "libewf error".to_string()
         };
-        libewf_error_free(&mut error);
+        unsafe {
+            libewf_error_free(&mut error);
+        }
         msg
     }
 }
@@ -472,7 +474,7 @@ pub fn compute_sha256(
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_sha256, is_ewf_path, RawFileSource};
+    use super::{RawFileSource, compute_sha256, is_ewf_path};
 
     #[test]
     fn ewf_extension_detection() {
