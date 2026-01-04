@@ -22,8 +22,20 @@ jobs:
             echo "Wiki not enabled or doesn't exist yet. Please enable wiki in repo settings."
             exit 0
           }
-          # Copy docs to wiki, keeping file structure
-          cp -r docs/* wiki/
+          
+          # Copy main docs (flatten structure for GitHub wiki)
+          for f in docs/*.md; do
+            [ -f "$f" ] && cp "$f" wiki/
+          done
+          
+          # Copy carver docs with "carver-" prefix for flat wiki structure
+          for f in docs/carver/*.md; do
+            [ -f "$f" ] && cp "$f" "wiki/carver-$(basename "$f")"
+          done
+          
+          # Rename carver/README.md to carver-index.md
+          [ -f wiki/carver-README.md ] && mv wiki/carver-README.md wiki/carver-index.md
+          
           cd wiki
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

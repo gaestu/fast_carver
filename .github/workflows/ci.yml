@@ -120,15 +120,15 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libewf-dev
+          sudo apt-get install -y libewf-dev ocl-icd-opencl-dev opencl-headers
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
-      - name: Build documentation
-        run: cargo doc --no-deps --document-private-items
+      - name: Build documentation (default features only, no CUDA)
+        run: cargo doc --no-deps --document-private-items --features gpu-opencl
         env:
           RUSTDOCFLAGS: -D warnings
 
