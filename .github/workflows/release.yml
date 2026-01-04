@@ -58,7 +58,17 @@ jobs:
         run: |
           echo "CUDA_PATH=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}" >> $GITHUB_ENV
           echo "CUDA_ROOT=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}" >> $GITHUB_ENV
+          echo "CUDA_HOME=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}" >> $GITHUB_ENV
+          echo "CUDA_TOOLKIT_ROOT_DIR=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}" >> $GITHUB_ENV
+          echo "CUDACXX=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}/bin/nvcc" >> $GITHUB_ENV
           echo "${{ steps.cuda-toolkit.outputs.CUDA_PATH }}/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=${{ steps.cuda-toolkit.outputs.CUDA_PATH }}/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Verify CUDA install
+        if: matrix.variant.name == 'cuda'
+        run: |
+          which nvcc
+          nvcc --version
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
