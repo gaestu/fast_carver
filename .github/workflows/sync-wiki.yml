@@ -3,8 +3,7 @@ name: Sync Wiki
 on:
   push:
     branches: [main]
-    paths:
-      - docs/**
+  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: write
@@ -23,10 +22,11 @@ jobs:
             echo "Wiki not enabled or doesn't exist yet. Please enable wiki in repo settings."
             exit 0
           }
-          rsync -av --delete docs/ wiki/
+          # Copy docs to wiki, keeping file structure
+          cp -r docs/* wiki/
           cd wiki
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
+          git add -A
           git diff --staged --quiet || git commit -m "Auto-sync wiki from docs"
           git push

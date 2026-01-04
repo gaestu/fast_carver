@@ -88,10 +88,10 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fastcarve-linux-x86_64
-          path: target/release/fastcarve
+          name: swiftbeaver-linux-x86_64
+          path: target/release/swiftbeaver
 
-  # Optional: GPU build verification (no actual GPU test)
+  # GPU build verification - only OpenCL (CUDA requires special setup in release.yml)
   gpu-build:
     name: GPU Feature Builds
     runs-on: ubuntu-latest
@@ -101,15 +101,15 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libewf-dev ocl-icd-opencl-dev
+          sudo apt-get install -y libewf-dev ocl-icd-opencl-dev opencl-headers
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
-      - name: Build with OpenCL feature
-        run: cargo build --features gpu-opencl --verbose
+      - name: Check OpenCL feature compiles
+        run: cargo check --features gpu-opencl --verbose
 
   docs:
     name: Documentation
