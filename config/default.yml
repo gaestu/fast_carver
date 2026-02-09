@@ -61,6 +61,28 @@ file_types:
     max_size: 536870912
     min_size: 100
     validator: "sqlite"
+  - id: "sqlite_wal"
+    extensions: ["sqlite-wal"]
+    header_patterns:
+      - id: "sqlite_wal_magic_82"
+        hex: "377F0682"
+      - id: "sqlite_wal_magic_83"
+        hex: "377F0683"
+    footer_patterns: []
+    max_size: 536870912
+    min_size: 32
+    validator: "sqlite_wal"
+  - id: "sqlite_page"
+    extensions: ["sqlite-page"]
+    header_patterns:
+      - id: "sqlite_page_table_leaf"
+        hex: "0D"
+      - id: "sqlite_page_index_leaf"
+        hex: "0A"
+    footer_patterns: []
+    max_size: 65536
+    min_size: 512
+    validator: "sqlite_page"
   - id: "pdf"
     extensions: ["pdf"]
     header_patterns:

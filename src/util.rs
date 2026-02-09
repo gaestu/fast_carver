@@ -179,6 +179,14 @@ pub fn build_carve_registry(cfg: &Config, dry_run: bool) -> Result<CarveRegistry
     simple_builders.insert("sqlite", |ext, min, max| {
         boxed(carve::sqlite::SqliteCarveHandler::new(ext, min, max))
     });
+    simple_builders.insert("sqlite_wal", |ext, min, max| {
+        boxed(carve::sqlite_wal::SqliteWalCarveHandler::new(ext, min, max))
+    });
+    simple_builders.insert("sqlite_page", |ext, min, max| {
+        boxed(carve::sqlite_page::SqlitePageCarveHandler::new(
+            ext, min, max,
+        ))
+    });
     simple_builders.insert("pdf", |ext, min, max| {
         boxed(carve::pdf::PdfCarveHandler::new(ext, min, max))
     });

@@ -880,7 +880,7 @@ fn category_for_file_type(file_type: &str) -> ParquetCategory {
         "jpeg" | "jpg" => ParquetCategory::FilesJpeg,
         "png" => ParquetCategory::FilesPng,
         "gif" => ParquetCategory::FilesGif,
-        "sqlite" | "sqlite_db" => ParquetCategory::FilesSqlite,
+        "sqlite" | "sqlite_db" | "sqlite_wal" | "sqlite_page" => ParquetCategory::FilesSqlite,
         "pdf" => ParquetCategory::FilesPdf,
         "zip" | "docx" | "xlsx" | "pptx" => ParquetCategory::FilesZip,
         "webp" => ParquetCategory::FilesWebp,

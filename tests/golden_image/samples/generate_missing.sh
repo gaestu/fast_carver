@@ -368,6 +368,13 @@ else
     echo "  ! Created databases/browser_history_wal.sqlite (no -wal sidecar on this sqlite build)"
 fi
 
+# Synthetic isolated SQLite page fragment fixture
+# (single validated 4096-byte table-leaf page for sqlite_page carving tests)
+dd if=/dev/zero of=databases/sqlite_orphan_page.bin bs=4096 count=1 2>/dev/null
+echo -n "0d000000010ff0000ff0" | xxd -r -p | dd of=databases/sqlite_orphan_page.bin bs=1 seek=0 conv=notrunc 2>/dev/null
+echo -n "01" | xxd -r -p | dd of=databases/sqlite_orphan_page.bin bs=1 seek=4080 conv=notrunc 2>/dev/null
+echo "  ✓ Created databases/sqlite_orphan_page.bin"
+
 #------------------------------------------------------------------------------
 # strings.txt - Test data for string scanning
 #------------------------------------------------------------------------------

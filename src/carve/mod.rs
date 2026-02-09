@@ -23,6 +23,8 @@ pub mod riff;
 pub mod rtf;
 pub mod sevenz;
 pub mod sqlite;
+pub mod sqlite_page;
+pub mod sqlite_wal;
 pub mod tar;
 pub mod tiff;
 pub mod wav;

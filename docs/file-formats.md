@@ -4,12 +4,12 @@ Complete reference of all file formats supported by SwiftBeaver, organized by ca
 
 ## Summary Statistics
 
-- **Total Formats**: 34
+- **Total Formats**: 36
 - **Image Formats**: 7
 - **Document Formats**: 9  
 - **Archive Formats**: 7
 - **Multimedia Formats**: 8
-- **Database & Special**: 3
+- **Database & Special**: 5
 
 ---
 
@@ -167,6 +167,8 @@ Complete reference of all file formats supported by SwiftBeaver, organized by ca
 | Format | Extensions | Signature | Max Size (Default) | Validated | Notes |
 |--------|-----------|-----------|-------------------|-----------|-------|
 | **SQLite** | sqlite, db, sqlite3 | `53 51 4C 69 74 65 20 66 6F 72 6D 61 74 20 33 00` | 1 GB | Yes | Browser history extraction, page-level recovery |
+| **SQLite WAL** | sqlite-wal | `37 7F 06 82` or `37 7F 06 83` | 512 MB | Yes | Walks WAL frames using page size from header |
+| **SQLite Page Fragment** | sqlite-page | `0D` / `0A` + page-structure checks | 64 KB | Yes | Carves one validated raw SQLite page per hit |
 | **ELF** | (none), bin | `7F 45 4C 46` | 100 MB | Yes | Linux executables, section-based structure |
 | **EML** | eml | `46 72 6F 6D 3A` or RFC 2822 headers | 50 MB | Yes | Email message format, preserves headers and body |
 
@@ -179,6 +181,20 @@ Complete reference of all file formats supported by SwiftBeaver, organized by ca
 - Browser Artifacts: Automatically extracts history, cookies, downloads from Chromium-based browsers
 - Page Recovery: Optional deep scan for individual pages when database is corrupted
 - Edge Cases: Empty databases (page_count=0), WAL files, various page sizes (512-65536 bytes)
+
+**SQLite WAL**:
+- Detection: WAL magic `0x377F0682` or `0x377F0683` at offset 0
+- Size Calculation: WAL header + `(24-byte frame header + page_size payload) × frame_count`
+- Validation: Checks WAL header layout and page size, then walks frames with page number/salt sanity checks
+- Metadata: Recorded as carved file only (`sqlite_wal`), no in-pipeline row parsing
+- Edge Cases: Truncated final frame, invalid page number (`0`), mismatched frame salts
+
+**SQLite Page Fragment**:
+- Detection: Leaf-page marker (`0x0D` table leaf, `0x0A` index leaf)
+- Size Calculation: Carves exactly one validated page using detected page size policy
+- Validation: Header sanity, pointer table bounds, cell pointer bounds, freeblock-chain loop/out-of-bounds checks
+- Metadata: Recorded as carved file only (`sqlite_page`), no row-level interpretation
+- Edge Cases: Single-byte candidate markers are high-volume on large inputs; strict validation is applied and additional hit-capping/performance hardening is planned
 
 **ELF**:
 - Detection: ELF magic number + class/endianness
