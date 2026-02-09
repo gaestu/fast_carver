@@ -176,8 +176,6 @@ struct PipelineChannels {
     meta_rx: crossbeam_channel::Receiver<MetadataEvent>,
     string_tx: Option<crossbeam_channel::Sender<StringJob>>,
     string_rx: Option<crossbeam_channel::Receiver<StringJob>>,
-    sqlite_tx: Option<crossbeam_channel::Sender<workers::SqliteJob>>,
-    sqlite_rx: Option<crossbeam_channel::Receiver<workers::SqliteJob>>,
 }
 
 struct PipelineCounters {
@@ -213,7 +211,6 @@ struct WorkerHandles {
     scan_handles: Vec<std::thread::JoinHandle<()>>,
     carve_handles: Vec<std::thread::JoinHandle<()>>,
     string_handles: Vec<std::thread::JoinHandle<()>>,
-    sqlite_handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 struct ScanOutcome {
@@ -285,19 +282,22 @@ impl<'a> PipelineRunner<'a> {
         let (checkpoint_path, resume_offset, resume_chunks) =
             self.validate_checkpoint(total_bytes)?;
         let total_chunks = chunk_count(total_bytes, self.chunk_size);
+        if self.cfg.enable_sqlite_page_recovery {
+            warn!(
+                "sqlite artefact parsing is disabled in carve-only mode; enable_sqlite_page_recovery is ignored"
+            );
+        }
         info!(
             "chunk_count={} chunk_size={} overlap={}",
             total_chunks, self.chunk_size, self.overlap
         );
 
-        let sqlite_enabled = self.sqlite_enabled();
-        let channels = self.setup_channels(self.string_scanner.is_some(), sqlite_enabled);
+        let channels = self.setup_channels(self.string_scanner.is_some());
         let counters = PipelineCounters::new(self.cfg.max_files);
 
         let meta_sink = self.meta_sink.take().expect("metadata sink already taken");
         let entropy_cfg = self.entropy_config();
-        let handles =
-            self.spawn_workers(meta_sink, &channels, &counters, entropy_cfg, sqlite_enabled);
+        let handles = self.spawn_workers(meta_sink, &channels, &counters, entropy_cfg);
 
         let outcome = self.scan_loop(
             total_bytes,
@@ -371,13 +371,6 @@ impl<'a> PipelineRunner<'a> {
         Ok((checkpoint_path, resume_offset, resume_chunks))
     }
 
-    fn sqlite_enabled(&self) -> bool {
-        self.cfg.file_types.iter().any(|file_type| {
-            file_type.id.eq_ignore_ascii_case("sqlite")
-                || file_type.validator.trim().eq_ignore_ascii_case("sqlite")
-        })
-    }
-
     fn entropy_config(&self) -> Option<EntropyConfig> {
         if self.cfg.enable_entropy_detection && self.cfg.entropy_window_size > 0 {
             Some(EntropyConfig {
@@ -389,7 +382,7 @@ impl<'a> PipelineRunner<'a> {
         }
     }
 
-    fn setup_channels(&self, string_enabled: bool, sqlite_enabled: bool) -> PipelineChannels {
+    fn setup_channels(&self, string_enabled: bool) -> PipelineChannels {
         let channel_cap = self
             .workers
             .saturating_mul(CHANNEL_CAPACITY_MULTIPLIER)
@@ -405,13 +398,6 @@ impl<'a> PipelineRunner<'a> {
             (None, None)
         };
 
-        let (sqlite_tx, sqlite_rx) = if sqlite_enabled {
-            let (tx, rx) = bounded::<workers::SqliteJob>(channel_cap);
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
-        };
-
         PipelineChannels {
             scan_tx,
             scan_rx,
@@ -421,8 +407,6 @@ impl<'a> PipelineRunner<'a> {
             meta_rx,
             string_tx,
             string_rx,
-            sqlite_tx,
-            sqlite_rx,
         }
     }
 
@@ -432,7 +416,6 @@ impl<'a> PipelineRunner<'a> {
         channels: &PipelineChannels,
         counters: &PipelineCounters,
         entropy_cfg: Option<EntropyConfig>,
-        sqlite_enabled: bool,
     ) -> WorkerHandles {
         let meta_handle = workers::spawn_metadata_thread(
             meta_sink,
@@ -463,8 +446,6 @@ impl<'a> PipelineRunner<'a> {
             channels.hit_rx.clone(),
             channels.meta_tx.clone(),
             counters.carve_limiter.clone(),
-            channels.sqlite_tx.clone(),
-            self.cfg.enable_sqlite_page_recovery,
             counters.carve_errors.clone(),
         );
 
@@ -486,27 +467,11 @@ impl<'a> PipelineRunner<'a> {
             Vec::new()
         };
 
-        let sqlite_handles = if sqlite_enabled {
-            if let Some(rx) = &channels.sqlite_rx {
-                workers::spawn_sqlite_workers(
-                    self.workers,
-                    rx.clone(),
-                    channels.meta_tx.clone(),
-                    counters.sqlite_errors.clone(),
-                )
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-
         WorkerHandles {
             meta_handle,
             scan_handles,
             carve_handles,
             string_handles,
-            sqlite_handles,
         }
     }
 
@@ -635,7 +600,6 @@ impl<'a> PipelineRunner<'a> {
             scan_tx,
             hit_tx,
             string_tx,
-            sqlite_tx,
             meta_tx,
             ..
         } = channels;
@@ -643,7 +607,6 @@ impl<'a> PipelineRunner<'a> {
         drop(scan_tx);
         drop(hit_tx);
         drop(string_tx);
-        drop(sqlite_tx);
 
         for handle in handles.scan_handles {
             let _ = handle.join();
@@ -652,9 +615,6 @@ impl<'a> PipelineRunner<'a> {
             let _ = handle.join();
         }
         for handle in handles.string_handles {
-            let _ = handle.join();
-        }
-        for handle in handles.sqlite_handles {
             let _ = handle.join();
         }
 

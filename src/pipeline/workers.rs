@@ -36,14 +36,6 @@ pub struct StringJob {
     pub spans: Vec<StringSpan>,
 }
 
-/// Job containing a SQLite file to parse for browser artefacts
-pub struct SqliteJob {
-    pub path: PathBuf,
-    pub run_id: String,
-    pub rel_path: String,
-    pub enable_page_recovery: bool,
-}
-
 /// Spawn the metadata recording thread
 pub fn spawn_metadata_thread(
     sink: Box<dyn MetadataSink>,
@@ -223,8 +215,6 @@ pub fn spawn_carve_workers(
     rx: Receiver<NormalizedHit>,
     meta_tx: Sender<MetadataEvent>,
     carve_limiter: Arc<CarveLimiter>,
-    sqlite_tx: Option<Sender<SqliteJob>>,
-    enable_sqlite_page_recovery: bool,
     carve_errors: Arc<AtomicU64>,
 ) -> Vec<thread::JoinHandle<()>> {
     let mut handles = Vec::new();
@@ -238,7 +228,6 @@ pub fn spawn_carve_workers(
         let rx = rx.clone();
         let meta_tx = meta_tx.clone();
         let carve_limiter = carve_limiter.clone();
-        let sqlite_tx = sqlite_tx.clone();
         let carve_errors = carve_errors.clone();
 
         handles.push(thread::spawn(move || {
@@ -265,25 +254,8 @@ pub fn spawn_carve_workers(
                 match handler.process_hit(&hit, &ctx) {
                     Ok(Some(file)) => {
                         carve_limiter.commit();
-                        let path = carved_root.join(&file.path);
-                        let file_type = file.file_type.clone();
-                        let rel_path = file.path.clone();
                         if let Err(err) = meta_tx.send(MetadataEvent::File(file)) {
                             warn!("metadata channel closed while sending carved file: {err}");
-                        }
-
-                        if file_type == "sqlite" {
-                            if let Some(tx) = &sqlite_tx {
-                                let job = SqliteJob {
-                                    path,
-                                    run_id: run_id.clone(),
-                                    rel_path,
-                                    enable_page_recovery: enable_sqlite_page_recovery,
-                                };
-                                if let Err(err) = tx.send(job) {
-                                    warn!("sqlite channel closed while sending job: {err}");
-                                }
-                            }
                         }
                     }
                     Ok(None) => {
@@ -300,164 +272,6 @@ pub fn spawn_carve_workers(
     }
 
     handles
-}
-
-/// Process SQLite files for browser artifacts (history, cookies, downloads)
-fn process_sqlite_artifacts(
-    path: &std::path::Path,
-    run_id: &str,
-    rel_path: &str,
-    meta_tx: &Sender<MetadataEvent>,
-    enable_page_recovery: bool,
-    sqlite_errors: &Arc<AtomicU64>,
-) {
-    // Extract browser history
-    let mut records =
-        match crate::parsers::sqlite_db::extract_browser_history(path, run_id, rel_path) {
-            Ok(records) => records,
-            Err(err) => {
-                sqlite_errors.fetch_add(1, Ordering::Relaxed);
-                warn!("sqlite parse failed for {}: {err}", path.display());
-                Vec::new()
-            }
-        };
-
-    // Try page-level recovery if no records found
-    if records.is_empty() && enable_page_recovery {
-        match crate::parsers::sqlite_pages::extract_history_from_pages(path, run_id, rel_path) {
-            Ok(mut recovered) => records.append(&mut recovered),
-            Err(err) => {
-                sqlite_errors.fetch_add(1, Ordering::Relaxed);
-                warn!("sqlite page recovery failed for {}: {err}", path.display());
-            }
-        }
-    }
-
-    for record in records {
-        if let Err(err) = meta_tx.send(MetadataEvent::History(record)) {
-            warn!("metadata channel closed while sending history record: {err}");
-            return;
-        }
-    }
-
-    // Extract browser cookies
-    match crate::parsers::sqlite_db::extract_browser_cookies(path, run_id, rel_path) {
-        Ok(records) => {
-            for record in records {
-                if let Err(err) = meta_tx.send(MetadataEvent::Cookie(record)) {
-                    warn!("metadata channel closed while sending cookie record: {err}");
-                    return;
-                }
-            }
-        }
-        Err(err) => {
-            sqlite_errors.fetch_add(1, Ordering::Relaxed);
-            warn!("sqlite cookie parse failed for {}: {err}", path.display());
-        }
-    }
-
-    // Extract browser downloads
-    match crate::parsers::sqlite_db::extract_browser_downloads(path, run_id, rel_path) {
-        Ok(records) => {
-            for record in records {
-                if let Err(err) = meta_tx.send(MetadataEvent::Download(record)) {
-                    warn!("metadata channel closed while sending download record: {err}");
-                    return;
-                }
-            }
-        }
-        Err(err) => {
-            sqlite_errors.fetch_add(1, Ordering::Relaxed);
-            warn!("sqlite download parse failed for {}: {err}", path.display());
-        }
-    }
-}
-
-/// Spawn SQLite artefact extraction worker threads
-pub fn spawn_sqlite_workers(
-    workers: usize,
-    rx: Receiver<SqliteJob>,
-    meta_tx: Sender<MetadataEvent>,
-    sqlite_errors: Arc<AtomicU64>,
-) -> Vec<thread::JoinHandle<()>> {
-    let mut handles = Vec::new();
-    let worker_count = workers.max(1);
-
-    for _ in 0..worker_count {
-        let rx = rx.clone();
-        let meta_tx = meta_tx.clone();
-        let sqlite_errors = sqlite_errors.clone();
-
-        handles.push(thread::spawn(move || {
-            for job in rx {
-                process_sqlite_artifacts(
-                    &job.path,
-                    &job.run_id,
-                    &job.rel_path,
-                    &meta_tx,
-                    job.enable_page_recovery,
-                    &sqlite_errors,
-                );
-            }
-        }));
-    }
-
-    handles
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossbeam_channel::bounded;
-    use rusqlite::Connection;
-    use tempfile::tempdir;
-
-    #[test]
-    fn sqlite_workers_emit_history_events() {
-        let dir = tempdir().expect("tempdir");
-        let path = dir.path().join("History");
-        let conn = Connection::open(&path).expect("conn");
-        conn.execute(
-            "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, last_visit_time INTEGER)",
-            [],
-        )
-        .expect("create");
-        conn.execute(
-            "INSERT INTO urls (url, title, last_visit_time) VALUES (?1, ?2, ?3)",
-            ("https://example.com", "Example", 13_303_449_600_000_000i64),
-        )
-        .expect("insert");
-        drop(conn);
-
-        let (tx, rx) = bounded::<SqliteJob>(1);
-        let (meta_tx, meta_rx) = bounded::<MetadataEvent>(16);
-        let sqlite_errors = Arc::new(AtomicU64::new(0));
-
-        let handles = spawn_sqlite_workers(1, rx, meta_tx.clone(), sqlite_errors.clone());
-        tx.send(SqliteJob {
-            path,
-            run_id: "run1".to_string(),
-            rel_path: "sqlite/history.sqlite".to_string(),
-            enable_page_recovery: false,
-        })
-        .expect("send job");
-        drop(tx);
-
-        for handle in handles {
-            let _ = handle.join();
-        }
-        drop(meta_tx);
-
-        let mut saw_history = false;
-        for event in meta_rx.try_iter() {
-            if matches!(event, MetadataEvent::History(_)) {
-                saw_history = true;
-                break;
-            }
-        }
-        assert!(saw_history);
-        assert_eq!(sqlite_errors.load(Ordering::Relaxed), 0);
-    }
 }
 
 /// Spawn string artefact extraction worker threads

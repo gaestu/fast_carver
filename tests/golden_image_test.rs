@@ -162,6 +162,17 @@ fn read_file_stable(path: &PathBuf, label: &str) -> String {
     fs::read_to_string(path).expect(label)
 }
 
+fn read_jsonl_values(path: &PathBuf, label: &str) -> Vec<serde_json::Value> {
+    let content = read_file_stable(path, label);
+    let mut out = Vec::new();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let value = serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|err| panic!("{label}: {err}"));
+        out.push(value);
+    }
+    out
+}
+
 #[test]
 fn golden_carves_from_raw() {
     let _guard = golden_run_lock()
@@ -264,6 +275,30 @@ fn golden_carves_from_raw() {
     assert!(
         matched > 0,
         "expected carved outputs to match manifest samples"
+    );
+
+    let metadata_dir = run_output_dir.join("metadata");
+    let history_path = metadata_dir.join("browser_history.jsonl");
+    let cookies_path = metadata_dir.join("browser_cookies.jsonl");
+    let downloads_path = metadata_dir.join("browser_downloads.jsonl");
+    assert!(history_path.exists(), "missing browser_history.jsonl");
+    assert!(cookies_path.exists(), "missing browser_cookies.jsonl");
+    assert!(downloads_path.exists(), "missing browser_downloads.jsonl");
+
+    let history = read_jsonl_values(&history_path, "read history metadata");
+    let cookies = read_jsonl_values(&cookies_path, "read cookies metadata");
+    let downloads = read_jsonl_values(&downloads_path, "read downloads metadata");
+    assert!(
+        history.is_empty(),
+        "browser history parsing should be disabled"
+    );
+    assert!(
+        cookies.is_empty(),
+        "browser cookie parsing should be disabled"
+    );
+    assert!(
+        downloads.is_empty(),
+        "browser downloads parsing should be disabled"
     );
 }
 
