@@ -67,6 +67,10 @@ pub struct Config {
     pub entropy_threshold: f64,
     #[serde(default)]
     pub enable_sqlite_page_recovery: bool,
+    #[serde(default = "default_sqlite_page_max_hits_per_chunk")]
+    pub sqlite_page_max_hits_per_chunk: usize,
+    #[serde(default = "default_sqlite_wal_max_consecutive_checksum_failures")]
+    pub sqlite_wal_max_consecutive_checksum_failures: u32,
     pub opencl_platform_index: Option<usize>,
     pub opencl_device_index: Option<usize>,
     #[serde(default)]
@@ -155,6 +159,14 @@ fn default_entropy_window_size() -> usize {
 
 fn default_entropy_threshold() -> f64 {
     7.5
+}
+
+fn default_sqlite_page_max_hits_per_chunk() -> usize {
+    4096
+}
+
+fn default_sqlite_wal_max_consecutive_checksum_failures() -> u32 {
+    2
 }
 
 fn default_true() -> bool {

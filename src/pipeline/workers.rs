@@ -116,6 +116,7 @@ pub fn spawn_scan_workers(
     entropy_cfg: Option<EntropyConfig>,
     hits_found: Arc<AtomicU64>,
     string_spans: Arc<AtomicU64>,
+    sqlite_page_max_hits_per_chunk: usize,
 ) -> Vec<thread::JoinHandle<()>> {
     let mut handles = Vec::new();
     let worker_count = workers.max(1);
@@ -131,16 +132,26 @@ pub fn spawn_scan_workers(
         let meta_tx = meta_tx.clone();
         let run_id = run_id.clone();
         let entropy_cfg = entropy_cfg;
+        let sqlite_page_max_hits_per_chunk = sqlite_page_max_hits_per_chunk.max(1);
 
         handles.push(thread::spawn(move || {
             for job in rx {
                 let effective_valid = job.chunk.valid_length.min(job.data.len() as u64);
                 let valid_len = effective_valid as usize;
+                let mut sqlite_page_hits = 0usize;
+                let mut sqlite_page_hits_dropped = 0usize;
 
                 // Scan for file signatures
                 for hit in scanner.scan_chunk(&job.chunk, &job.data) {
                     if hit.local_offset >= effective_valid {
                         continue;
+                    }
+                    if hit.file_type_id == "sqlite_page" {
+                        if sqlite_page_hits >= sqlite_page_max_hits_per_chunk {
+                            sqlite_page_hits_dropped = sqlite_page_hits_dropped.saturating_add(1);
+                            continue;
+                        }
+                        sqlite_page_hits = sqlite_page_hits.saturating_add(1);
                     }
                     hits_found.fetch_add(1, Ordering::Relaxed);
                     let global_offset = job.chunk.start + hit.local_offset;
@@ -153,6 +164,15 @@ pub fn spawn_scan_workers(
                         warn!("hit channel closed while sending hit: {err}");
                         break;
                     }
+                }
+                if sqlite_page_hits_dropped > 0 {
+                    debug!(
+                        "chunk {} sqlite_page hits capped: kept={} dropped={} cap={}",
+                        job.chunk.id,
+                        sqlite_page_hits,
+                        sqlite_page_hits_dropped,
+                        sqlite_page_max_hits_per_chunk
+                    );
                 }
 
                 // Scan for strings if enabled

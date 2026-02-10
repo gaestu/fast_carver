@@ -25,7 +25,7 @@ fn build_valid_leaf_page(page_size: usize) -> Vec<u8> {
     page
 }
 
-fn run_page_carver(bytes: Vec<u8>) -> Vec<Value> {
+fn run_page_carver(bytes: Vec<u8>, sqlite_page_max_hits_per_chunk: Option<usize>) -> Vec<Value> {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let input_path = temp_dir.path().join("input.bin");
     fs::write(&input_path, bytes).expect("write input");
@@ -34,6 +34,9 @@ fn run_page_carver(bytes: Vec<u8>) -> Vec<Value> {
     let mut cfg = loaded.config;
     cfg.run_id = "sqlite_page_test".to_string();
     cfg.file_types.retain(|ft| ft.id == "sqlite_page");
+    if let Some(cap) = sqlite_page_max_hits_per_chunk {
+        cfg.sqlite_page_max_hits_per_chunk = cap;
+    }
 
     let evidence = RawFileSource::open(&input_path).expect("evidence");
     let evidence: Arc<dyn swiftbeaver::evidence::EvidenceSource> = Arc::new(evidence);
@@ -89,7 +92,7 @@ fn carves_valid_sqlite_page() {
     let offset = 4096usize;
     image[offset..offset + page.len()].copy_from_slice(&page);
 
-    let records = run_page_carver(image);
+    let records = run_page_carver(image, None);
     assert_eq!(records.len(), 1, "expected exactly one sqlite_page record");
 
     let rec = &records[0];
@@ -111,10 +114,27 @@ fn rejects_noisy_candidates() {
         image[i] = 0x0D; // signature byte but invalid structure (cell_count remains zero)
     }
 
-    let records = run_page_carver(image);
+    let records = run_page_carver(image, None);
     assert!(
         records.is_empty(),
         "expected no sqlite_page records from noisy data"
+    );
+}
+
+#[test]
+fn caps_sqlite_page_hits_per_chunk() {
+    let mut image = vec![0xAA; 64 * 1024];
+    for i in 0..8usize {
+        let offset = 1024 + i * 4096;
+        let page = build_valid_leaf_page(4096);
+        image[offset..offset + 4096].copy_from_slice(&page);
+    }
+
+    let records = run_page_carver(image, Some(2));
+    assert!(
+        records.len() <= 2,
+        "expected sqlite_page hit cap to keep at most 2 records, got {}",
+        records.len()
     );
 }
 

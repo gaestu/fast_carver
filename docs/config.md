@@ -23,6 +23,8 @@ The default config is `config/default.yml`.
 - `entropy_window_size` (usize): window size (bytes) used for entropy calculation.
 - `entropy_threshold` (float): entropy threshold for marking high-entropy regions.
 - `enable_sqlite_page_recovery` (bool): enable SQLite page-level URL recovery when DB parsing fails.
+- `sqlite_page_max_hits_per_chunk` (usize): cap for `sqlite_page` scanner hits per chunk to limit single-byte marker overload.
+- `sqlite_wal_max_consecutive_checksum_failures` (u32): maximum consecutive WAL frames allowed to fail full rolling checksum validation before carving stops.
 - `opencl_platform_index` (usize, optional): select OpenCL platform by index.
 - `opencl_device_index` (usize, optional): select OpenCL device by index.
 - `zip_allowed_kinds` (list, optional): restrict ZIP outputs to `zip`, `docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`, `epub` when set.
@@ -42,7 +44,7 @@ Each entry in `file_types` contains:
 - `footer_patterns`: footer signatures used by the `footer` validator
 - `max_size`: maximum carve size in bytes
 - `min_size`: minimum carve size in bytes
-- `validator`: handler name (`jpeg`, `png`, `gif`, `sqlite`, `pdf`, `zip`, `webp`, `bmp`, `tiff`, `mp4`, `mov`, `rar`, `sevenz`, `wav`, `avi`, `mp3`, `ole`, `tar`, `gzip`, `bzip2`, `xz`, `ogg`, `webm`, `wmv`, `rtf`, `ico`, `elf`, `eml`, `mobi`, `fb2`, `lrf`, `footer`)
+- `validator`: handler name (`jpeg`, `png`, `gif`, `sqlite`, `sqlite_wal`, `sqlite_page`, `pdf`, `zip`, `webp`, `bmp`, `tiff`, `mp4`, `mov`, `rar`, `sevenz`, `wav`, `avi`, `mp3`, `ole`, `tar`, `gzip`, `bzip2`, `xz`, `ogg`, `webm`, `wmv`, `rtf`, `ico`, `elf`, `eml`, `mobi`, `fb2`, `lrf`, `footer`)
 - `require_eocd`: optional; for ZIP, require an EOCD before carving (prevents large false positives)
 
 The `footer` validator performs a simple header-to-footer carve for formats without a dedicated handler.

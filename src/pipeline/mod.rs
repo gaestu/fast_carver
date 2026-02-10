@@ -435,6 +435,7 @@ impl<'a> PipelineRunner<'a> {
             entropy_cfg,
             counters.hits_found.clone(),
             counters.string_spans.clone(),
+            self.cfg.sqlite_page_max_hits_per_chunk,
         );
 
         let carve_handles = workers::spawn_carve_workers(

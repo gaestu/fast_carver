@@ -1,6 +1,6 @@
 # SQLite WAL + Page Fragment Carving (Carve-Only)
 
-**Status:** Implemented  
+**Status:** In Progress  
 **Priority:** High  
 **Effort:** Medium/High  
 **Scope Type:** Carving only (no parsing/extraction logic)
