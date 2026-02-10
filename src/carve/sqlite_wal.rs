@@ -33,6 +33,7 @@ struct WalHeader {
 struct WalWalkResult {
     size: u64,
     frames: u32,
+    checksum_mismatches: u32,
     truncated: bool,
     errors: Vec<String>,
 }
@@ -106,6 +107,12 @@ impl CarveHandler for SqliteWalCarveHandler {
 
         let mut truncated = walked.truncated;
         let mut errors = walked.errors;
+        if walked.checksum_mismatches > 0 {
+            errors.push(format!(
+                "encountered {} WAL checksum mismatch frame(s); threshold controls stopping, not frame filtering",
+                walked.checksum_mismatches
+            ));
+        }
         let end = hit.global_offset.saturating_add(walked.size);
         let (written, eof_truncated) = write_range(
             ctx,
@@ -133,7 +140,7 @@ impl CarveHandler for SqliteWalCarveHandler {
         } else {
             hit.global_offset + written - 1
         };
-        let validated = walked.frames > 0 && !truncated;
+        let validated = walked.frames > 0 && !truncated && walked.checksum_mismatches == 0;
         let md5_hex = format!("{:x}", md5.compute());
         let sha256_hex = hex::encode(sha256.finalize());
 
@@ -238,6 +245,7 @@ fn walk_frames(
 
     let mut offset = start.saturating_add(WAL_HEADER_LEN);
     let mut frames = 0u32;
+    let mut checksum_mismatches = 0u32;
     let mut truncated = false;
     let mut errors = Vec::new();
     let mut consecutive_checksum_failures = 0u32;
@@ -321,6 +329,7 @@ fn walk_frames(
             frame_header[23],
         ]);
         if frame_checksum[0] != expected_checksum_1 || frame_checksum[1] != expected_checksum_2 {
+            checksum_mismatches = checksum_mismatches.saturating_add(1);
             consecutive_checksum_failures = consecutive_checksum_failures.saturating_add(1);
             if consecutive_checksum_failures > max_consecutive_checksum_failures {
                 errors.push(format!(
@@ -342,6 +351,7 @@ fn walk_frames(
     Ok(WalWalkResult {
         size: offset.saturating_sub(start),
         frames,
+        checksum_mismatches,
         truncated,
         errors,
     })

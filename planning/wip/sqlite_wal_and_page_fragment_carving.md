@@ -197,6 +197,18 @@ Extend existing golden tests to assert:
 2. Add config tuning knobs if needed (including optional per-chunk cap for `sqlite_page` single-byte marker hits).
 3. Document carve-only workflow for external parser handoff.
 
+### Implementation Status (Current)
+
+- **Completed**:
+  - Phase 1 WAL handler + wiring + tests
+  - Phase 2 SQLite page handler + wiring + synthetic/golden fixtures + tests
+  - Per-chunk `sqlite_page` hit cap and tuning knobs
+  - WAL rolling checksum validation and configurable consecutive-failure stop threshold
+- **Remaining**:
+  - Phase 3 throughput/false-positive benchmarking on large images
+  - Additional tuning based on benchmark results
+  - Dedicated carve-only handoff documentation for external parsers
+
 ---
 
 ## Risks and Mitigations
@@ -208,6 +220,9 @@ Extend existing golden tests to assert:
 3. **Performance overhead**
    - Current state: `sqlite_page` starts from single-byte marker candidates (`0x0D`, `0x0A`) which can produce high scanner hit volumes on large evidence.
    - Mitigation: cheap prechecks before deep validation; bounded candidate scans; optional hit-capping in hardening phase.
+4. **WAL checksum threshold semantics**
+   - Current state: checksum failure threshold controls **when carving stops**; it does not remove already traversed mismatching frame bytes from the carved output.
+   - Mitigation: document semantics clearly; set threshold to `0` for strict stop-on-first-mismatch behavior.
 
 ---
 
